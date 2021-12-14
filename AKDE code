@@ -1,0 +1,30 @@
+# this is for directly downloading from movebank - in a better example I subset telemetry by year manually (because it is way easier) and use ctmmweb with r script
+# the ctmmweb code is already parallelized so movement models run much much quicker
+# this is mostly for my personal reference because I might run w/ctmm alone at some point in the future
+
+library(ctmm)
+library(move)
+
+# log into movebank for file
+login <- movebankLogin(username="llabarge", password="Samango1992!")
+getMovebankStudies(login)
+
+searchMovebankStudies(x="Bornean", login=login)
+orang_study <- getMovebankData(study="Bornean Orangutan, Pongo pygmaeus, Tuanan, Central Kalimantan, Indonesia", login=login)
+str(orang_study)
+length(orangs)
+orangs <-as.telemetry(orang_study, timeformat="auto", timezone="WIB")
+str(orangs)
+dt <- 30 %#% "minute"
+as.list(names(orangs))
+fitting_function <- function(i)
+  O.GUESS <- ctmm.guess(orangs[[i]], CTMM = ctmm(error = 15), interactive=F)
+O.FITS<-ctmm.select(orangs[[i]], O.GUESS, verbose = T, trace=2)
+for(i in 1:length(as.list(orangs))
+   O.FITS[[i]] <- fitting_function(i) }
+names(O.FITS) <- as.list(names(orangs))
+AKDE <- list()
+for(i in 1:length(orangs)){
+  print(i)
+  AKDE[[i]] <- akde(orangs[[i]],O.FITS[[i]][[1]])}
+names(AKDE)<-names(orangs)
