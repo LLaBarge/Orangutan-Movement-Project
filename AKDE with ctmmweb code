@@ -1,0 +1,44 @@
+if (!require("remotes")) install.packages("remotes")
+remotes::install_github("ctmm-initiative/ctmmweb")
+
+ctmmweb::app() 
+setwd("C:/Users/lrlab/OneDrive/Desktop/LC_Project/CTMM_HR_by_year/Saved_2021-12-13_14-22-29.698")
+readRDS(file="data.rds")
+readRDS(file="model_list_dt.rds")
+readRDS(file="input_telemetry.rds")
+
+
+library(ctmm)
+library(ctmmweb)
+library(data.table)
+
+# this read from a .rds from saved progress file from ctmmweb shiny application
+#this is so that the original data could be subsetted by year starting with 2003
+tele_list <- readRDS("input_telemetry.rds")
+summary(tele_list)
+# one line to try models. The result is a nested list of CTMM models
+model_try_res <- par_try_models(tele_list)
+saveRDS(model_try_res, file="model_try_res.rds")
+
+# summary models to find the best
+model_summary <- summary_tried_models(model_try_res)
+# select the best model name for each individual, which is the first one with 0 AICc
+best_model_names <- model_summary[, .(best_model_name = model_name[1]),
+                                  by = "identity"]$best_model_name
+# get a flat list of model object
+model_list <- flatten_models(model_try_res)
+# get the best model objects
+best_models <- model_list[best_model_names]
+# calculate home range in same grid
+hrange_list_same_grid <- akde(tele_list, best_models)
+saveRDS(hrange_list_same_grid, file="hrunname.rds")
+# names for each akde
+names(hrange_list_same_grid) <- names(best_models)
+#export info on each HR
+sumhr<-lapply(hrange_list_same_grid, summary)
+View(sumhr)
+capture.output(sumhr, file = "hr_LC_list.txt")  
+
+#model summaries for each individual/year
+modview<-knitr::kable(model_summary)
+capture.output(modview, file = "hr_models_LC.txt")  
