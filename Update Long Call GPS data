@@ -1,0 +1,57 @@
+# long call data on flanged orangutan males 
+#was given by Maria van Noordwijk but most observations 
+#were not matched with a coordinate location
+#begin matching LC data with ranging data to assign 
+#nearest location to each call
+setwd("C:/Users/lrlab/OneDrive/Desktop/GPS201718/CSVs")
+
+#load GPS data as csv and Long call data
+library(readr)
+LongCalls <- read_csv("LongCalls.csv")
+Tuanan_AdultOrang <- read_csv("~/Tuanan_AdultOrang.csv")
+library(dplyr)
+PTS <- as.data.frame(Tuanan_AdultOrang)
+LC <- as.data.frame(LongCalls)
+PTS$datetime<-as.POSIXct(PTS$date)
+attr(PTS$datetime, "tzone") <- "Asia/Pontianak"
+attr(LC$date, "tzone") <- "Asia/Pontianak"
+LC$datetime<-LC$date
+PTS$D<-as.numeric(as.POSIXct(PTS$datetime))
+LC$D<-as.numeric(as.POSIXct(LC$datetime))
+
+#correct names that have typos
+LC$ID<-LC$`Name Focal`
+PTS$ID<-PTS$id
+LC$ID <- gsub("NIKO", "Niko", LC$ID)
+LC$ID <- gsub("wodan", "Wodan", LC$ID)
+
+# join by the nearest GPS point timestamp
+library(data.table)
+setDT(LC)[, join_date := D]
+setDT(PTS)[, join_date := D]
+# rolling join
+LC_GPS_added<-PTS[LC, on = .(ID, join_date), roll = "nearest", allow.cartesian = TRUE]
+View(LC_GPS_added)
+write.csv(LC_GPS_added,"LC_GPS_added.csv")
+
+# create a new dataframe with just the information we need 
+LC_GPS<-as.data.frame(LC_GPS_added)
+LC_subset <- LC_GPS[, c("id", "long", "lat", "Follow Nr", "Year", "Month...3", "Day", "Time", "Duration", "# Pulses", "direction")]
+
+#Manually looked at the number of LC/individual/year
+# only 2012 through 2015 fit data requirements of use-availability logit
+LC_subset$date <- as.Date(with(LC_subset, paste(Year, Month...3, Day, sep="-")), "%Y-%m-%d")
+LC_subset$Timestamp <- paste(LC_subset$date,LC_subset$Time)
+head(LC_subset)
+
+LC_2012_thru_2015 <- LC_subset[LC_subset$date >= "2012-01-01" & LC_subset$date <= "2015-12-31", ]
+str(LC_2012_thru_2015)
+
+# remove observations where ID is unknown
+unique(LC_2012_thru_2015$id)
+LongCalls_2012_2015 <-LC_2012_thru_2015[!is.na(LC_2012_thru_2015$id), ]
+unique(LongCalls_2012_2015$id)
+write.csv(LongCalls_2012_2015, "LongCalls_2012_2015.csv")
+
+# Manually upload data to movebank (Long Call and All GPS data)
+# then can be used with ctmm more easily
