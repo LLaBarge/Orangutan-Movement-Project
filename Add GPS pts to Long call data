@@ -1,0 +1,35 @@
+# long call data on flanged orangutan males 
+#was given by Maria van Noordwijk but most observations 
+#were not matched with a coordinate location
+#begin matching LC data with ranging data to assign 
+#nearest location to each call
+setwd("C:/Users/lrlab/OneDrive/Desktop/GPS201718/CSVs")
+
+#load GPS data as csv and Long call data
+library(readr)
+LongCalls <- read_csv("LongCalls.csv")
+Tuanan_AdultOrang <- read_csv("~/Tuanan_AdultOrang.csv")
+library(dplyr)
+PTS <- as.data.frame(Tuanan_AdultOrang)
+LC <- as.data.frame(LongCalls)
+PTS$datetime<-as.POSIXct(PTS$date)
+attr(PTS$datetime, "tzone") <- "Asia/Pontianak"
+attr(LC$date, "tzone") <- "Asia/Pontianak"
+LC$datetime<-LC$date
+PTS$D<-as.numeric(as.POSIXct(PTS$datetime))
+LC$D<-as.numeric(as.POSIXct(LC$datetime))
+
+#correct names that have typos
+LC$ID<-LC$`Name Focal`
+PTS$ID<-PTS$id
+LC$ID <- gsub("NIKO", "Niko", LC$ID)
+LC$ID <- gsub("wodan", "Wodan", LC$ID)
+
+# join by the nearest GPS point timestamp
+library(data.table)
+setDT(LC)[, join_date := D]
+setDT(PTS)[, join_date := D]
+# rolling join
+LC_GPS_added<-PTS[LC, on = .(ID, join_date), roll = "nearest", allow.cartesian = TRUE]
+View(LC_GPS_added)
+write.csv(LC_GPS_added,"LC_GPS_added.csv")
