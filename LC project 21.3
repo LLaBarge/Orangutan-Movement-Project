@@ -1,0 +1,772 @@
+# Lc project script for 2012 long calls
+# script for creating AKDEs and then polygons for Long call project
+library(move)
+library(ctmm)
+library(readr)
+setwd("C:/Users/lrlab/OneDrive/Desktop/LC_Project")
+# log into movebank for file
+# movebank contains all the GPS data and a separate file 
+# named "Bornean Orangutan 2012" was batched edited to contain only that year
+login <- movebankLogin(username="llabarge", password="Samango1992!")
+getMovebankStudies(login)
+
+searchMovebankStudies(x="Bornean", login=login)
+orang_study <- getMovebankData(study="Bornean Orangutan 2012, Pongo pygmaeus, Tuanan, Central Kalimatan", login=login)
+
+# create as.telemetry object for ctmm models
+orangs<-as.telemetry(orang_study, projection = "+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+
+
+#run continuous-time movement models, select the best for each individual
+# then use the best model to run autocorrelated KDEs with an error of 25m assigned
+SVF <- list()
+for(i in 1:length(orangs)){
+  print(i)
+  SVF[[i]] <- variogram(orangs[[i]])}
+names(SVF) <- names(orangs)
+
+
+## fit models to all animals
+# AKDEs for largest area to create available points
+#occurrance distributions for risk of encounter
+FIT <- list()
+for(i in 1:length(orangs)){
+  print(i)
+  GUESS <- ctmm.guess(orangs[[i]],CTMM=ctmm(error=25), interactive=FALSE)
+  FIT[[i]] <- ctmm.select(orangs[[i]],GUESS, verbose=TRUE,trace=2)
+}
+
+extent<-extent(212812, 219348, 9758957, 9773670)
+
+AKDE <- list()
+for(i in 1:length(orangs)){
+  print(i)
+  AKDE[[i]] <- akde(orangs[[i]],FIT[[i]][[1]], grid=list(extent=extent, dr=25))
+}
+names(AKDE) <- names(orangs)
+
+OD <- list()
+for(i in 1:length(orangs)){
+  print(i)
+  OD[[i]] <- occurrence(orangs[[i]],FIT[[i]][[1]])
+}
+names(OD) <- names(orangs)
+
+save(AKDE, file="LC_AKDEs.Rdata")
+save(FIT, file="LC_models.Rdata")
+load(file="FIT.rda")
+load(file="AKDEs_longcall.rda")
+memory.size(25000)
+extent(AKDE)
+save(OD, file="occurrence.Rdata")
+
+
+#check plot of one just to make sure things look OK
+sp::plot(AKDE[["X2012.Juni"]])
+
+# export rasters with cummulative distribution
+# create separate per individual/year to keep track
+library(spatialEco)
+rastlist<- lapply(AKDE, function(X) raster(X))
+names(rastlist) <- names(orangs)
+
+save(rastlist, file="rastlist.rda")
+load(file="rastlist.rda")
+library(spatialEco)
+#create individual files
+#invert males CDF
+# females will be used to create CDE and are not yet inverted
+
+Chili_2012_rast <- rastlist$X2012.Chili
+Chili_inv<-spatialEco::raster.invert(Chili_2012_rast)
+sp::plot(Chili_inv)   
+   
+Desy_2012_rast<-rastlist$X2012.Desy
+Helium_2012_rast<-rastlist[["X2012.Helium"]]
+Helium_inv<-spatialEco::raster.invert(Helium_2012_rast)
+
+Jinak_2012_rast<-rastlist[["X2012.Jinak"]]
+Juni_2012_rast<-rastlist[["X2012.Juni"]]
+Kerry_2012_rast<-rastlist[["X2012.Kerry"]]
+Kondor_2012_rast<-rastlist[["X2012.Kondor"]]
+Mindy_2012_rast<-rastlist[["X2012.Mindy"]]
+
+Niko_2012_rast<-rastlist[["X2012.Niko"]]
+Niko_inv<-spatialEco::raster.invert(Niko_2012_rast)
+
+Preman_2012_rast<-rastlist[["X2012.Preman"]]
+Preman_inv<-spatialEco::raster.invert(Preman_2012_rast)
+
+Teju_2012_rast<-rastlist[["X2012.Teju"]]
+Teju_inv<-spatialEco::raster.invert(Teju_2012_rast)
+
+Tomi_2012_rast<-rastlist[["X2012.Tomi"]]
+Tomi_inv<-spatialEco::raster.invert(Tomi_2012_rast)
+
+Wodan_2012_rast<-rastlist[["X2012.Wodan"]]
+Wodan_inv<-spatialEco::raster.invert(Wodan_2012_rast)
+
+# create polygons of the focal males for random points
+library(sp)
+CRS<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+
+Chili_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Chili"]],level.UD=0.95, proj4string=CRS)
+Chili_2012_avail<-spsample(Chili_2012_spPoly@polygons$`2012-Chili 95% est`,n=720,"random", proj4string=CRS)
+
+Chili_2012_avail_pts<-as.data.frame(Chili_2012_avail)
+ID<-rep("Chili_2012_avail",times=720)
+PT<-rep("Available",times=720)
+Timestamp<-rep("NA", times=720)
+Chili_2012_avail_pts$Timestamp<-Timestamp
+Chili_2012_avail_pts$ID<-ID
+Chili_2012_avail_pts$PT<-PT
+save(Chili_2012_avail_pts, file="Chili_2012_avail_pts.rda")
+write.csv(Chili_2012_avail_pts, "Chili_2012_avail_pts.csv")
+
+Helium_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Helium"]],level.UD=0.95, proj4string=CRS)
+Helium_2012_avail<-spsample(Helium_2012_spPoly@polygons$`2012-Helium 95% est`,n=1305,"random", proj4string=CRS)
+
+Helium_2012_avail_pts<-as.data.frame(Helium_2012_avail)
+ID<-rep("Helium_2012_avail",times=1305)
+PT<-rep("Available",times=1305)
+Timestamp<-rep("NA", times=1305)
+Helium_2012_avail_pts$Timestamp<-Timestamp
+Helium_2012_avail_pts$ID<-ID
+Helium_2012_avail_pts$PT<-PT
+save(Helium_2012_avail_pts, file="Helium_2012_avail_pts.rda")
+write.csv(Helium_2012_avail_pts, "Helium_2012_avail_pts.csv")
+
+Niko_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Niko"]],level.UD=0.95, proj4string=CRS)
+Niko_2012_avail<-spsample(Niko_2012_spPoly@polygons$`2012-Niko 95% est`,n=1000,"random", proj4string=CRS)
+
+Niko_2012_avail_pts<-as.data.frame(Niko_2012_avail)
+ID<-rep("Niko_2012_avail",times=1000)
+PT<-rep("Available",times=1000)
+Timestamp<-rep("NA", times=1000)
+Niko_2012_avail_pts$Timestamp<-Timestamp
+Niko_2012_avail_pts$ID<-ID
+Niko_2012_avail_pts$PT<-PT
+save(Niko_2012_avail_pts, file="Niko_2012_avail_pts.rda")
+write.csv(Niko_2012_avail_pts, "Niko_2012_avail_pts.csv")
+
+Preman_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Preman"]],level.UD=0.95, proj4string=CRS)
+Preman_2012_avail<-spsample(Preman_2012_spPoly@polygons$`2012-Preman 95% est`,n=560,"random", proj4string=CRS)
+
+Preman_2012_avail_pts<-as.data.frame(Preman_2012_avail)
+ID<-rep("Preman_2012_avail",times=560)
+PT<-rep("Available",times=560)
+Timestamp<-rep("NA", times=560)
+Preman_2012_avail_pts$Timestamp<-Timestamp
+Preman_2012_avail_pts$ID<-ID
+Preman_2012_avail_pts$PT<-PT
+save(Preman_2012_avail_pts, file="Preman_2012_avail_pts.rda")
+write.csv(Preman_2012_avail_pts, "Preman_2012_avail_pts.csv")
+
+Teju_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Teju"]],level.UD=0.95, proj4string=CRS)
+Teju_2012_avail<-spsample(Teju_2012_spPoly@polygons$`2012-Teju 95% est`,n=1195,"random", proj4string=CRS)
+
+Teju_2012_avail_pts<-as.data.frame(Teju_2012_avail)
+ID<-rep("Teju_2012_avail",times=1195)
+PT<-rep("Available",times=1195)
+Timestamp<-rep("NA", times=1195)
+Teju_2012_avail_pts$Timestamp<-Timestamp
+Teju_2012_avail_pts$ID<-ID
+Teju_2012_avail_pts$PT<-PT
+save(Teju_2012_avail_pts, file="Teju_2012_avail_pts.rda")
+write.csv(Teju_2012_avail_pts, "Teju_2012_avail_pts.csv")
+
+Tomi_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Tomi"]],level.UD=0.95, proj4string=CRS)
+Tomi_2012_avail<-spsample(Tomi_2012_spPoly@polygons$`2012-Tomi 95% est`,n=1530,"random", proj4string=CRS)
+
+Tomi_2012_avail_pts<-as.data.frame(Tomi_2012_avail)
+ID<-rep("Tomi_2012_avail",times=1530)
+PT<-rep("Available",times=1530)
+Timestamp<-rep("NA", times=1530)
+Tomi_2012_avail_pts$Timestamp<-Timestamp
+Tomi_2012_avail_pts$ID<-ID
+Tomi_2012_avail_pts$PT<-PT
+save(Tomi_2012_avail_pts, file="Tomi_2012_avail_pts.rda")
+write.csv(Tomi_2012_avail_pts, "Tomi_2012_avail_pts.csv")
+
+Wodan_2012_spPoly<-SpatialPolygonsDataFrame.UD(AKDE[["X2012.Wodan"]],level.UD=0.95, proj4string=CRS)
+Wodan_2012_avail<-spsample(Wodan_2012_spPoly@polygons$`2012-Wodan 95% est`,n=5025,"random", proj4string=CRS)
+
+Wodan_2012_avail_pts<-as.data.frame(Wodan_2012_avail)
+ID<-rep("Wodan_2012_avail",times=5025)
+PT<-rep("Available",times=5025)
+Timestamp<-rep("NA", times=5025)
+Wodan_2012_avail_pts$Timestamp<-Timestamp
+Wodan_2012_avail_pts$ID<-ID
+Wodan_2012_avail_pts$PT<-PT
+save(Wodan_2012_avail_pts, file="Wodan_2012_avail_pts.rda")
+write.csv(Wodan_2012_avail_pts, "Wodan_2012_avail_pts.csv")
+
+
+# join available pts into a single data frame
+
+Avail_pts<-rbind(Wodan_2012_avail_pts, Tomi_2012_avail_pts, Teju_2012_avail_pts, Preman_2012_avail_pts, Niko_2012_avail_pts, Chili_2012_avail_pts, Helium_2012_avail_pts)
+Avail_pts
+unique(Avail_pts$ID)
+Avail_pts$ID <- gsub("Tomi_2012_avail", "Tomi_2012", Avail_pts$ID)
+Avail_pts$ID <- gsub("Teju_2012_avail", "Teju_2012", Avail_pts$ID)
+Avail_pts$ID <- gsub("Niko_2012_avail", "Niko_2012", Avail_pts$ID)
+Avail_pts$ID <- gsub("Chili_2012_avail", "Chili_2012", Avail_pts$ID)
+Avail_pts$ID <- gsub("Helium_2012_avail" , "Helium_2012", Avail_pts$ID)
+Avail_pts$ID <- gsub("Preman_2012_avail", "Preman_2012", Avail_pts$ID)
+Avail_pts$ID <- gsub("Wodan_2012_avail", "Wodan_2012", Avail_pts$ID)
+as.data.frame(Avail_pts)
+
+library(dplyr)
+library(stringr)
+Avail_pts$Year <- str_sub(Avail_pts$ID, -4)
+write.csv(Avail_pts, file="C:/Users/lrlab/OneDrive/Documents/Avail_pts.csv")
+
+# get long call data on movebank
+login <- movebankLogin(username="llabarge", password="Samango1992!")
+getMovebankStudies(login)
+
+searchMovebankStudies(x="Bornean", login=login)
+
+LongCalls<-getMovebankData(study="Long Calls, Bornean Orangutan, Pongo pygmaeus, Tuanan, Central Kalimatan, Indonesia", login=login)
+
+# format long call data so can be merged as "cases" along with the
+# "control" available points
+LC_tel<- as.telemetry(LongCalls, projection = "+init=epsg:32750 +proj=utm +zone=50 +south")
+LC_pts<- do.call(rbind, lapply(LC_tel, function(x) as.data.frame(x)))
+str(LC_pts)
+PT<-rep("LongCall",times=4261)
+LC_pts$PT<-PT
+
+library(stringr)
+LC_pts$Year <- str_sub(LC_pts$timestamp, start = 1L, end = 4L)
+LC_pts$Year
+LC_pts$ID <- rownames(LC_pts)
+unique(LC_pts$ID)
+LC_pts$ID<- gsub("\\..*","",LC_pts$ID)
+LC_pts$ID <- gsub("LC$", "_", LC_pts$ID)
+LC_pts$ID<-paste(LC_pts$ID,LC_pts$Year)
+LC_points<-LC_pts[,c("x", "y", "PT", "Year", "timestamp", "ID")]
+rownames(LC_points) <- NULL
+as.data.frame(LC_points)
+
+write.csv(LC_pts, file="LC_pts.csv")
+
+# Only certain individuals will be included in the analysis
+# individuals with >30LC/year
+LC_points_subset<-subset(LC_points,ID %in% c('Chili_ 2012','Preman_ 2012','Niko_ 2012','Helium_ 2012','Tomi_ 2012','Wodan_ 2012','Teju_ 2012'))
+str(LC_points_subset)
+unique(LC_points_subset$ID)
+names(LC_points_subset)[names(LC_points_subset) == 'timestamp'] <- 'Timestamp'
+library(tidyverse)
+library(lubridate)
+# need to filter dataframe to remove duplicate pts or those within 20 minutes of one another
+elapsed <- function(x)
+{
+  y <- abs(as.duration(x[2:length(x)] %--% x[1:(length(x)-1)]))
+  y >= 25*60
+} 
+
+LC_points_subset %>% 
+  group_split(ID) %>%  
+  map_dfr(~ .[c(T, if (nrow(.) > 1) elapsed(.$Timestamp)),])
+head(LC_points_subset)
+# Five times the the number of long calls will determine the number "available" 
+length(which(LC_points_subset$ID == "Chili_ 2012"))
+length(which(LC_points_subset$ID == "Helium_ 2012"))
+length(which(LC_points_subset$ID == "Niko_ 2012"))
+length(which(LC_points_subset$ID == "Preman_ 2012"))
+length(which(LC_points_subset$ID == "Teju_ 2012"))
+length(which(LC_points_subset$ID == "Tomi_ 2012"))
+length(which(LC_points_subset$ID == "Wodan_ 2012"))
+
+write.csv(LC_points_subset, file="Long Call Points.csv")
+
+# bind the long calls (cases) and available pts (controls) together
+LC_com<-LC_points_subset%>% dplyr::select('ID', 'PT', 'Year', 'x', 'y')
+Av_com<-Avail_pts%>% dplyr::select('ID', 'PT', 'Year', 'x', 'y')
+Combined_LC_CaseCon<-rbind(LC_com, Av_com)
+as.data.frame(Combined_LC_CaseCon)
+head(Combined_LC_CaseCon)
+
+Combined_LC_CaseCon$ID<-gsub("Chili_ 2012" , "Chili", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Helium_ 2012" , "Helium", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Niko_ 2012" , "Niko", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Preman_ 2012" , "Preman", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Tomi_ 2012", "Tomi", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Wodan_ 2012", "Wodan", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Chili_2012" , "Chili", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Helium_2012" , "Helium", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Niko_2012" , "Niko", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Preman_2012" , "Preman", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Tomi_2012", "Tomi", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Wodan_2012", "Wodan", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Teju_ 2012", "Teju", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Teju_2012", "Teju", Combined_LC_CaseCon$ID)
+Combined_LC_CaseCon$ID<-gsub("Wodan_2012", "Wodan", Combined_LC_CaseCon$ID)
+
+write.csv(Combined_LC_CaseCon, file="Combined_LC_CaseCon.csv")
+
+# Create the Conditional distributions of encounters with adult females
+# and then rasterize all of them so they can serve as predictors
+
+Female_2012<-list(AKDE[["X2012.Desy"]], AKDE[["X2012.Jinak"]], AKDE[["X2012.Juni"]], AKDE[["X2012.Kerry"]], AKDE[["X2012.Kondor"]], AKDE[["X2012.Mindy"]])
+Fem_2012<-mean(Female_2012)
+Fem<- raster(Fem_2012)
+Fem_in<-spatialEco::raster.invert(Fem)
+sp::plot(Fem_in)
+
+# split dataframe by individual and year for extracting from rasters
+# start with getting values for each individual's own UD
+
+
+Chili_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Chili' & Combined_LC_CaseCon$Year == '2012')
+xy <- Chili_df[,c("x","y")]
+Chili_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Chili_df, proj4string = CRS)
+Chili_12_fem_encounter <-raster::extract(Fem_in, Chili_2012_sp[,c("x", "y")])
+Chili_own <- raster::extract(Chili_inv, Chili_2012_sp[,c("x", "y")])
+Chili_Heli<-raster::extract(Helium_inv, Chili_2012_sp[,c("x", "y")])
+Chili_Niko<-raster::extract(Niko_inv, Chili_2012_sp[,c("x", "y")])
+Chili_Prem<-raster::extract(Preman_inv, Chili_2012_sp[,c("x", "y")])
+Chili_Teju<-raster::extract(Teju_inv, Chili_2012_sp[,c("x", "y")])
+Chili_Tomi<-raster::extract(Tomi_inv, Chili_2012_sp[,c("x", "y")])
+Chili_Wodan<-raster::extract(Wodan_inv, Chili_2012_sp[,c("x", "y")])
+Chili_2012_df<-cbind(Chili_2012_sp, Chili_own, Chili_12_fem_encounter, Chili_Wodan, Chili_Tomi, Chili_Teju, Chili_Prem, Chili_Niko, Chili_Heli)
+as.data.frame(Chili_2012_df)
+names(Chili_2012_df)[6] <- "Fem_Enc"
+names(Chili_2012_df)[7] <- "Chili_UD"
+names(Chili_2012_df)[8] <- "Helium_UD"
+names(Chili_2012_df)[9] <- "Niko_UD"
+names(Chili_2012_df)[10] <- "Preman_UD"
+names(Chili_2012_df)[11] <- "Teju_UD"
+names(Chili_2012_df)[12] <- "Tomi_UD"
+names(Chili_2012_df)[13] <- "Wodan_UD"
+head(Chili_2012_df)
+
+Helium_2012_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Helium' & Combined_LC_CaseCon$Year == '2012')
+xy <- Helium_2012_df[,c("x","y")]
+Helium_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Helium_2012_df, proj4string = CRS)
+Helium_12_fem_encounter<-raster::extract(Fem_in, Helium_2012_sp[,c("x", "y")])
+Heli_Chili<-raster::extract(Chili_inv, Helium_2012_sp[,c("x", "y")])
+Helium_own_12 <- raster::extract(Helium_inv, Helium_2012_sp[,c("x", "y")])
+Heli_Niko<-raster::extract(Niko_inv, Helium_2012_sp[,c("x", "y")])
+Heli_Prem<-raster::extract(Preman_inv,Helium_2012_sp[,c("x", "y")])
+Heli_Teju<-raster::extract(Teju_inv, Helium_2012_sp[,c("x", "y")])
+Heli_Tomi<-raster::extract(Tomi_inv,Helium_2012_sp[,c("x", "y")])
+Heli_Wodan<-raster::extract(Wodan_inv, Helium_2012_sp[,c("x", "y")])
+Helium_2012_df<-cbind(Helium_2012_sp, Helium_12_fem_encounter, Heli_Chili, Helium_own_12, Heli_Niko, Heli_Prem, Heli_Teju, Heli_Tomi, Heli_Wodan)
+as.data.frame(Helium_2012_df)
+names(Helium_2012_df)[6] <- "Fem_Enc"
+names(Helium_2012_df)[7] <- "Chili_UD"
+names(Helium_2012_df)[8] <- "Helium_UD"
+names(Helium_2012_df)[9] <- "Niko_UD"
+names(Helium_2012_df)[10] <- "Preman_UD"
+names(Helium_2012_df)[11] <- "Teju_UD"
+names(Helium_2012_df)[12] <- "Tomi_UD"
+names(Helium_2012_df)[13] <- "Wodan_UD"
+head(Helium_2012_df)
+
+Niko_2012_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Niko' & Combined_LC_CaseCon$Year == '2012')
+xy <- Niko_2012_df[,c("x","y")]
+Niko_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Niko_2012_df, proj4string = CRS)
+Niko_12_fem_encounter<-raster::extract(Fem_in, Niko_2012_sp[,c("x", "y")])
+Niko_Chili<-raster::extract(Chili_inv, Niko_2012_sp[,c("x", "y")])
+Niko_Heli <- raster::extract(Helium_inv, Niko_2012_sp[,c("x", "y")])
+Niko_Niko <- raster::extract(Niko_inv, Niko_2012_sp[,c("x", "y")])
+Niko_Prem<-raster::extract(Preman_inv,Niko_2012_sp[,c("x", "y")])
+Niko_Teju<-raster::extract(Teju_inv, Niko_2012_sp[,c("x", "y")])
+Niko_Tomi<-raster::extract(Tomi_inv,Niko_2012_sp[,c("x", "y")])
+Niko_Wodan<-raster::extract(Wodan_inv, Niko_2012_sp[,c("x", "y")])
+Niko_2012_df<-cbind(Niko_2012_sp, Niko_12_fem_encounter, Niko_Chili, Niko_Heli, Niko_Niko, Niko_Prem, Niko_Teju, Niko_Tomi, Niko_Wodan)
+as.data.frame(Niko_2012_df)
+names(Niko_2012_df)[6] <- "Fem_Enc"
+names(Niko_2012_df)[7] <- "Chili_UD"
+names(Niko_2012_df)[8] <- "Helium_UD"
+names(Niko_2012_df)[9] <- "Niko_UD"
+names(Niko_2012_df)[10] <- "Preman_UD"
+names(Niko_2012_df)[11] <- "Teju_UD"
+names(Niko_2012_df)[12] <- "Tomi_UD"
+names(Niko_2012_df)[13] <- "Wodan_UD"
+head(Niko_2012_df)
+
+Preman_2012_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Preman' & Combined_LC_CaseCon$Year == '2012')
+xy <-Preman_2012_df[,c("x","y")]
+Preman_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Preman_2012_df, proj4string = CRS)
+Preman_12_fem_encounter<-raster::extract(Fem_in, Preman_2012_sp[,c("x", "y")])
+Preman_Chili<-raster::extract(Chili_inv,Preman_2012_sp[,c("x", "y")])
+Preman_Heli <- raster::extract(Helium_inv, Preman_2012_sp[,c("x", "y")])
+Preman_Niko <- raster::extract(Niko_inv, Preman_2012_sp[,c("x", "y")])
+Preman_own <- raster::extract(Preman_inv, Preman_2012_sp[,c("x", "y")])
+Preman_Teju<-raster::extract(Teju_inv, Preman_2012_sp[,c("x", "y")])
+Preman_Tomi<-raster::extract(Tomi_inv,Preman_2012_sp[,c("x", "y")])
+Preman_Wodan<-raster::extract(Wodan_inv, Preman_2012_sp[,c("x", "y")])
+Preman_2012_df<-cbind(Preman_2012_sp, Preman_12_fem_encounter, Preman_Chili, Preman_Heli, Preman_Niko, Preman_own, Preman_Teju, Preman_Tomi, Preman_Wodan)
+as.data.frame(Preman_2012_df)
+names(Preman_2012_df)[6] <- "Fem_Enc"
+names(Preman_2012_df)[7] <- "Chili_UD"
+names(Preman_2012_df)[8] <- "Helium_UD"
+names(Preman_2012_df)[9] <- "Niko_UD"
+names(Preman_2012_df)[10] <- "Preman_UD"
+names(Preman_2012_df)[11] <- "Teju_UD"
+names(Preman_2012_df)[12] <- "Tomi_UD"
+names(Preman_2012_df)[13] <- "Wodan_UD"
+head(Preman_2012_df)
+
+
+
+Teju_2012_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Teju' & Combined_LC_CaseCon$Year == '2012')
+xy <-Teju_2012_df[,c("x","y")]
+Teju_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Teju_2012_df, proj4string = CRS)
+Teju_Fem<-raster::extract(Fem_in,Teju_2012_sp[,c("x", "y")])
+Teju_Chili<-raster::extract(Chili_inv,Teju_2012_sp[,c("x", "y")])
+Teju_Heli <- raster::extract(Helium_inv, Teju_2012_sp[,c("x", "y")])
+Teju_Niko <- raster::extract(Niko_inv, Teju_2012_sp[,c("x", "y")])
+Teju_Preman <- raster::extract(Preman_inv, Teju_2012_sp[,c("x", "y")])
+Teju_Teju<-raster::extract(Teju_inv, Teju_2012_sp[,c("x", "y")])
+Teju_Tomi<-raster::extract(Tomi_inv,Teju_2012_sp[,c("x", "y")])
+Teju_Wodan<-raster::extract(Wodan_inv, Teju_2012_sp[,c("x", "y")])
+Teju_2012_df<-cbind(Teju_2012_sp, Teju_Fem, Teju_Chili, Teju_Heli, Teju_Niko, Teju_Preman, Teju_Teju,Teju_Tomi,Teju_Wodan)
+as.data.frame(Teju_2012_df)
+names(Teju_2012_df)[6] <- "Fem_Enc"
+names(Teju_2012_df)[7] <- "Chili_UD"
+names(Teju_2012_df)[8] <- "Helium_UD"
+names(Teju_2012_df)[9] <- "Niko_UD"
+names(Teju_2012_df)[10] <- "Preman_UD"
+names(Teju_2012_df)[11] <- "Teju_UD"
+names(Teju_2012_df)[12] <- "Tomi_UD"
+names(Teju_2012_df)[13] <- "Wodan_UD"
+head(Teju_2012_df)
+
+Tomi_2012_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Tomi' & Combined_LC_CaseCon$Year == '2012')
+xy <-Tomi_2012_df[,c("x","y")]
+Tomi_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Tomi_2012_df, proj4string = CRS)
+Tomi_Fem<-raster::extract(Fem_in,Tomi_2012_sp[,c("x", "y")])
+Tomi_Chili<-raster::extract(Chili_inv,Tomi_2012_sp[,c("x", "y")])
+Tomi_Heli <- raster::extract(Helium_inv, Tomi_2012_sp[,c("x", "y")])
+Tomi_Niko <- raster::extract(Niko_inv, Tomi_2012_sp[,c("x", "y")])
+Tomi_Preman <- raster::extract(Preman_inv, Tomi_2012_sp[,c("x", "y")])
+Tomi_Teju<-raster::extract(Teju_inv, Tomi_2012_sp[,c("x", "y")])
+Tomi_Tomi<-raster::extract(Tomi_inv,Tomi_2012_sp[,c("x", "y")])
+Tomi_Wodan<-raster::extract(Wodan_inv, Tomi_2012_sp[,c("x", "y")])
+Tomi_2012_df<-cbind(Tomi_2012_sp, Tomi_Fem, Tomi_Chili, Tomi_Heli, Tomi_Niko, Tomi_Preman, Tomi_Teju, Tomi_Tomi, Tomi_Wodan)
+as.data.frame(Tomi_2012_df)
+names(Tomi_2012_df)[6] <- "Fem_Enc"
+names(Tomi_2012_df)[7] <- "Chili_UD"
+names(Tomi_2012_df)[8] <- "Helium_UD"
+names(Tomi_2012_df)[9] <- "Niko_UD"
+names(Tomi_2012_df)[10] <- "Preman_UD"
+names(Tomi_2012_df)[11] <- "Teju_UD"
+names(Tomi_2012_df)[12] <- "Tomi_UD"
+names(Tomi_2012_df)[13] <- "Wodan_UD"
+head(Tomi_2012_df)  
+
+
+Wodan_2012_df<-subset(Combined_LC_CaseCon,Combined_LC_CaseCon$ID == 'Wodan' & Combined_LC_CaseCon$Year == '2012')
+xy <-Wodan_2012_df[,c("x","y")]
+Wodan_2012_sp <- SpatialPointsDataFrame(coords = xy, data = Wodan_2012_df, proj4string = CRS)
+Wodan_Fem<-raster::extract(Fem_in,Wodan_2012_df[,c("x", "y")])
+Wodan_Chili<-raster::extract(Chili_inv,Wodan_2012_df[,c("x", "y")])
+Wodan_Heli <- raster::extract(Helium_inv, Wodan_2012_df[,c("x", "y")])
+Wodan_Niko <- raster::extract(Niko_inv, Wodan_2012_df[,c("x", "y")])
+Wodan_Preman <- raster::extract(Preman_inv, Wodan_2012_df[,c("x", "y")])
+Wodan_Teju<-raster::extract(Teju_inv, Wodan_2012_df[,c("x", "y")])
+Wodan_Tomi<-raster::extract(Tomi_inv,Wodan_2012_df[,c("x", "y")])
+Wodan_Wodan<-raster::extract(Wodan_inv, Wodan_2012_df[,c("x", "y")])
+Wodan_2012_df<-cbind(Wodan_2012_sp, Wodan_Fem, Wodan_Chili, Wodan_Heli, Wodan_Niko, Wodan_Preman, Wodan_Teju, Wodan_Tomi, Wodan_Wodan)
+as.data.frame(Wodan_2012_df)
+names(Wodan_2012_df)[6] <- "Fem_Enc"
+names(Wodan_2012_df)[7] <- "Chili_UD"
+names(Wodan_2012_df)[8] <- "Helium_UD"
+names(Wodan_2012_df)[9] <- "Niko_UD"
+names(Wodan_2012_df)[10] <- "Preman_UD"
+names(Wodan_2012_df)[11] <- "Teju_UD"
+names(Wodan_2012_df)[12] <- "Tomi_UD"
+names(Wodan_2012_df)[13] <- "Wodan_UD"
+head(Wodan_2012_df) 
+
+Combined<-rbind(Chili_2012_df, Helium_2012_df, Niko_2012_df, Preman_2012_df, Teju_2012_df, Tomi_2012_df, Wodan_2012_df)
+write.csv(Combined@data, file="LC_case_control_data.csv")
+LC_DATA<- as.data.frame(Combined@data)
+unique(LC_DATA$PT)
+library(plyr)
+#revalue long call vs control pts as 1 and 0 for models
+Chili_2012_df$PT <- revalue(Chili_2012_df$PT, c("LongCall"=1))
+Chili_2012_df$PT <- revalue(Chili_2012_df$PT, c("Available"=0))
+Helium_2012_df$PT <- revalue(Helium_2012_df$PT, c("LongCall"=1))
+Helium_2012_df$PT <- revalue(Helium_2012_df$PT, c("Available"=0))
+Niko_2012_df$PT <- revalue(Niko_2012_df$PT, c("LongCall"=1))
+Niko_2012_df$PT <- revalue(Niko_2012_df$PT, c("Available"=0))
+Preman_2012_df$PT <- revalue(Preman_2012_df$PT, c("LongCall"=1))
+Preman_2012_df$PT <- revalue(Preman_2012_df$PT, c("Available"=0))
+Teju_2012_df$PT <- revalue(Teju_2012_df$PT, c("LongCall"=1))
+Teju_2012_df$PT <- revalue(Teju_2012_df$PT, c("Available"=0))
+Tomi_2012_df$PT <- revalue(Tomi_2012_df$PT, c("LongCall"=1))
+Tomi_2012_df$PT <- revalue(Tomi_2012_df$PT, c("Available"=0))
+Wodan_2012_df$PT <- revalue(Wodan_2012_df$PT, c("LongCall"=1))
+Wodan_2012_df$PT <- revalue(Wodan_2012_df$PT, c("Available"=0))
+library(brms)
+library(rstan)
+library(bayesplot)
+library(DHARMa)
+library(tidybayes)
+
+
+fittedModel <- glm(PT ~ Fem_Enc, data = Chili_2012_df, family="binomial")
+res = simulateResiduals(fittedModel)
+# test spatial autocorrelation
+testSpatialAutocorrelation(res, x =  Chili_2012_df$x, y = Chili_2012_df$y)
+res2 = recalculateResiduals(res, group = LC_DATA$ID)
+testSpatialAutocorrelation(res2, 
+                           x =  aggregate(LC_DATA$x, list(LC_DATA$ID), mean)$x, 
+                           y = aggregate(LC_DATA$y, list(LC_DATA$ID), mean)$x)
+Chili<- as.data.frame(Chili_2012_df)
+Helium<-as.data.frame(Helium_2012_df)
+Niko<-as.data.frame(Niko_2012_df)
+Preman<-as.data.frame(Preman_2012_df)
+Teju<-as.data.frame(Teju_2012_df)
+Tomi<-as.data.frame(Tomi_2012_df)
+Wodan<-as.data.frame(Wodan_2012_df)
+
+# Chili Model
+Chili_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Chili, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+save(Chili_mod1, file="Chili_mod1.rda")
+summary(Chili_mod1)
+CE<- brms::conditional_effects(Chili_mod1)
+plot(CE)
+library(bayestestR)
+p_direction(Chili_mod1)
+rope(Chili_mod1, ci = c(.90, .95))
+equivalence_test(Chili_mod1, ci=.95)
+
+# Helium Model
+Helium_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Helium, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+summary(Helium_mod1)
+CE_H<- brms::conditional_effects(Helium_mod1)
+plot(CE_H)
+library(bayestestR)
+p_direction(Helium_mod1)
+equivalence_test(Helium_mod1, ci=.95)
+
+# Niko Model
+Niko_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Niko, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+summary(Niko_mod1)
+CE_N<- brms::conditional_effects(Niko_mod1)
+plot(CE_H)
+library(bayestestR)
+p_direction(Niko_mod1)
+equivalence_test(Niko_mod1, ci=.95)
+
+# Preman model
+Preman_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Preman, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+summary(Preman_mod1)
+CE_P<- brms::conditional_effects(Preman_mod1)
+plot(CE_P)
+library(bayestestR)
+p_direction(Preman_mod1)
+equivalence_test(Preman_mod1, ci=.95)
+
+# Teju model
+Teju_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Teju, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+summary(Teju_mod1)
+CE_Te<- brms::conditional_effects(Teju_mod1)
+plot(CE_Te)
+library(bayestestR)
+p_direction(Teju_mod1)
+equivalence_test(Teju_mod1, ci=.95)
+
+# Tomi model
+Tomi_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Tomi, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+summary(Tomi_mod1)
+CE_To<- brms::conditional_effects(Tomi_mod1)
+plot(CE_T0)
+library(bayestestR)
+p_direction(Tomi_mod1)
+equivalence_test(Tomi_mod1, ci=.95)
+
+# Wodan model
+Wodan_mod1 <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD, data = Wodan, family = "bernoulli",iter = 1000, warmup = 500, chains = 4, cores = 4, init=0, control = list(adapt_delta = 0.99, max_treedepth=15))
+summary(Wodan_mod1)
+CE_W<- brms::conditional_effects(Wodan_mod1)
+plot(CE_W)
+library(bayestestR)
+p_direction(Wodan_mod1)
+equivalence_test(Wodan_mod1, ci=.95)
+
+
+library(ggeffects)
+Chili_gg <- ggpredict(Chili_mod1, terms ="Fem_Enc", rawdata=TRUE)
+Chil_gg<-plot(Chili_gg, rawdata=TRUE)
+Chil_gg
+
+Helium_gg <- ggpredict(Helium_mod1, terms ="Fem_Enc", rawdata=TRUE)
+Helium_gg<-plot(Helium_gg, rawdata=TRUE)
+Helium_gg
+
+Niko_gg <- ggpredict(Niko_mod1, terms ="Fem_Enc", rawdata=TRUE)
+Niko_gg<-plot(Niko_gg, rawdata=TRUE)
+Niko_gg
+
+
+summary(Niko_mod)
+LC_mod_male <- brms::brm(PT ~ Fem_Enc+ Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD+(1+Fem_Enc+Chili_UD+ Helium_UD+ Niko_UD+Preman_UD+Teju_UD+Tomi_UD + Wodan_UD|ID), data = LC_DATA, family = "bernoulli",iter = 1000, warmup = 500, chains = 3, cores = 5, control = list(adapt_delta = 0.99, max_treedepth=15), save_pars=save_pars(group=TRUE))
+
+
+library(ggplot2)
+
+
+
+
+
+
+
+saveRDS(LC_mod_male, file="LC_mod_male.rds")
+readRDS(file="LC_mod_male.rds")
+plot(conditional_effects(LC_mod_male, re_formula = NULL))
+summary(LC_mod_male)
+pp_check(LC_mod_male)
+ranef(LC_mod_male)
+bayes_R2(LC_mod_male)
+
+#mapping to produce visuals
+devtools::install_github("dkahle/ggmap")
+library(ggmap)
+X <- split(Combined_LC_CaseCon, Combined_LC_CaseCon$PT)
+Avail<-as.data.frame(X[["Available"]])
+LongCall<-as.data.frame(X[["LongCall"]])
+
+# Chili 
+
+Chili_Avail<-subset(Avail, ID == "Chili")
+Chili_LC<-subset(LongCall, ID == "Chili")
+
+
+coordinates(Chili_Avail) <- ~x+y
+proj4string(Chili_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Chili_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Chili_Avail<-as.data.frame(LC_lonlat)
+coordinates(Chili_LC) <- ~x+y
+proj4string(Chili_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Chili_LC_lonlat<-spTransform(Chili_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Chili_df<-as.data.frame(Chili_LC_lonlat)
+
+library(ggmap)
+
+has_google_key="AIzaSyB-LS-V0xCqpm5uUxIohW3qpsWaR9qP634"
+register_google(key = "AIzaSyB-LS-V0xCqpm5uUxIohW3qpsWaR9qP634", write = TRUE)
+p <- get_map(location = c(lon = 114.4524, lat = -2.14560),zoom = 14, scale = 2, maptype ='satellite', source=c("google"))
+plot(p)
+
+q <- ggmap(p) 
+
+q1<- q+stat_density_2d(aes(x=x,y=y),bins = 2, color='white', data = Chili_Avail)
+                  
+q1 + stat_density_2d(aes(x = x, y = y, fill = ..level.., alpha = ..level..),  data = LC_Chili_df, size=2, bins=25, geom = "polygon") +
+  scale_fill_gradient(low = "#FFFF00", high = "#cc0000") + theme(legend.position="none")
+
+# Helium
+
+Helium_Avail<-subset(Avail, ID == "Helium")
+Helium_LC<-subset(LongCall, ID == "Helium")
+
+coordinates(Helium_Avail) <- ~x+y
+proj4string(Helium_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Helium_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Helium_Avail<-as.data.frame(LC_lonlat)
+coordinates(Helium_LC) <- ~x+y
+proj4string(Helium_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Helium_LC_lonlat<-spTransform(Helium_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Helium_df<-as.data.frame(Helium_LC_lonlat)
+
+q2<- q+stat_density_2d(aes(x=x,y=y),bins = 2, color='white', data = Helium_Avail)
+
+q2 + stat_density_2d(aes(x = x, y = y, fill = ..level.., alpha = ..level..),  data = LC_Helium_df, size=2, bins=15, geom = "polygon") +
+  scale_fill_gradient(low = "#FFFF00", high = "#cc0000") + theme(legend.position="none")
+
+# Niko
+
+Niko_Avail<-subset(Avail, ID == "Niko")
+Niko_LC<-subset(LongCall, ID == "Niko")
+
+coordinates(Niko_Avail) <- ~x+y
+proj4string(Niko_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Niko_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Niko_Avail<-as.data.frame(LC_lonlat)
+coordinates(Niko_LC) <- ~x+y
+proj4string(Niko_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Niko_LC_lonlat<-spTransform(Niko_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Niko_df<-as.data.frame(Niko_LC_lonlat)
+
+q2<- q+stat_density_2d(aes(x=x,y=y),bins = 2, color='white', data = Niko_Avail)
+
+q2 + stat_density_2d(aes(x = x, y = y, fill = ..level.., alpha = ..level..),  data = LC_Niko_df, size=2, bins=15, geom = "polygon") +
+  scale_fill_gradient(low = "#FFFF00", high = "#cc0000") + theme(legend.position="none")
+
+# Preman
+
+Preman_Avail<-subset(Avail, ID == "Preman")
+Preman_LC<-subset(LongCall, ID == "Preman")
+
+coordinates(Preman_Avail) <- ~x+y
+proj4string(Preman_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Preman_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Preman_Avail<-as.data.frame(LC_lonlat)
+coordinates(Preman_LC) <- ~x+y
+proj4string(Preman_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Preman_LC_lonlat<-spTransform(Preman_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Preman_df<-as.data.frame(Preman_LC_lonlat)
+
+q2<- q+stat_density_2d(aes(x=x,y=y),bins = 2, color='white', data = Preman_Avail)
+
+q2 + stat_density_2d(aes(x = x, y = y, fill = ..level.., alpha = ..level..),  data = LC_Preman_df, size=2, bins=15, geom = "polygon") +
+  scale_fill_gradient(low = "#FFFF00", high = "#cc0000") + theme(legend.position="none")
+
+# Teju
+
+Teju_Avail<-subset(Avail, ID == "Teju")
+Teju_LC<-subset(LongCall, ID == "Teju")
+
+coordinates(Teju_Avail) <- ~x+y
+proj4string(Teju_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Teju_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Teju_Avail<-as.data.frame(LC_lonlat)
+coordinates(Teju_LC) <- ~x+y
+proj4string(Teju_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Teju_LC_lonlat<-spTransform(Teju_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Teju_df<-as.data.frame(Teju_LC_lonlat)
+
+q2<- q+stat_density_2d(aes(x=x,y=y),bins = 2, color='white', data = Teju_Avail)
+
+q2 + stat_density_2d(aes(x = x, y = y, fill = ..level.., alpha = ..level..),  data = LC_Teju_df, size=2, bins=15, geom = "polygon") +
+  scale_fill_gradient(low = "#FFFF00", high = "#cc0000") + theme(legend.position="none")
+
+# Tomi
+
+Tomi_Avail<-subset(Avail, ID == "Tomi")
+Tomi_LC<-subset(LongCall, ID == "Tomi")
+
+coordinates(Tomi_Avail) <- ~x+y
+proj4string(Tomi_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Tomi_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Tomi_Avail<-as.data.frame(LC_lonlat)
+coordinates(Tomi_LC) <- ~x+y
+proj4string(Tomi_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Tomi_LC_lonlat<-spTransform(Tomi_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Tomi_df<-as.data.frame(Tomi_LC_lonlat)
+
+q2<- q+stat_density_2d(aes(x=x,y=y),bins = 2, color='white', data = Tomi_Avail)
+
+q2 + stat_density_2d(aes(x = x, y = y, fill = ..level.., alpha = ..level..),  data = LC_Tomi_df, size=2, bins=15, geom = "polygon") +
+  scale_fill_gradient(low = "#FFFF00", high = "#cc0000") + theme(legend.position="none")
+
+# Wodan
+
+Wodan_Avail<-subset(Avail, ID == "Wodan")
+Wodan_LC<-subset(LongCall, ID == "Wodan")
+
+coordinates(Wodan_Avail) <- ~x+y
+proj4string(Wodan_Avail)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+LC_lonlat<-spTransform(Wodan_Avail, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+Wodan_Avail<-as.data.frame(LC_lonlat)
+coordinates(Wodan_LC) <- ~x+y
+proj4string(Wodan_LC)<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+Wodan_LC_lonlat<-spTransform(Wodan_LC, CRSobj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+LC_Wodan_df<-as.data.frame(Wodan_LC_lonlat)
