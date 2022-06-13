@@ -1,8 +1,9 @@
 
 # take the raw Passive acoustic monitoring data (provided by B. Spillmann)
 # and subset for the known individuals
+setwd("C:/Users/lrlab/OneDrive/Desktop/LC_Project/")
 library(readr)
-LC_PAM_data <- read_csv("C:/Users/lrlab/OneDrive/Desktop/LC_Project/LC_PAMsystem_forediting_R.csv")
+LC_PAM_data <- read_csv("LC_PAMsystem_forediting_R.csv")
 head(LC_PAM)
 unique(LC_PAM_data$caller_ID.def)
 LC_PAM<-LC_PAM_data[LC_PAM_data$caller_ID.def %in% c("Helium", "Henk" ,  "Preman", "Katmandun" , "MAX" ,"Max" ,"Chili" ,"Luca","Dayak","Teju","Flunmu", "Wodan", "Niko", "Otto", "Tomi"), ]
@@ -21,6 +22,17 @@ LC_PAM_to_Movebank<-LC_PAM%>% dplyr::select('ID', 'Month...5', 'x', 'y', 'timest
 # create an ID_date column to create monthly occurrence distributions for long calls
 LC_PAM_to_Movebank$ID_date <- paste(LC_PAM_to_Movebank$ID,LC_PAM$Month...5)
 str(LC_PAM_to_Movebank)
+
+# remove any 0s from locations
+
+LC_PAM_to_Movebank <- LC_PAM_to_Movebank[!LC_PAM_to_Movebank$x == "0" | !LC_PAM_to_Movebank$y == "0" , ]
+
+
+# remove any NA values
+LC_PAM_to_Movebank<-na.omit(LC_PAM_to_Movebank)
+
+
+
 # save to csv to upload manually to movebank
 write.csv(LC_PAM_to_Movebank, file="LC_PAM_to_Movebank.csv")
 
