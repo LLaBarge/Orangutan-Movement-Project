@@ -9,16 +9,33 @@ setwd("C:/Users/lrlab/OneDrive/Desktop/LC_Project")
 #edit file that will go onto movebank to only have data from months
 # with enough location pts/individual to include in
 # occurrence distributions >50 locations/month
-Tuanan_GPS_2012 <- read_csv("Tuanan GPS 2012.csv")
+Tuanan_GPS_2012 <- read_csv("Tuanan_2012_GPS_data.csv")
 as.data.frame(Tuanan_GPS_2012)
-Tuanan_GPS_2012$ID_Month<-paste(Tuanan_GPS_2012$id, Tuanan_GPS_2012$Month)
-Tuanan_filtered<-subset(Tuanan_GPS_2012, with(Tuanan_GPS_2012, ID_Month %in% names(which(table(ID_Month)>=50))))
-str(Tuanan_filtered)
+Tuanan_GPS_2012$ID_Month<-paste(Tuanan_GPS_2012$identity, Tuanan_GPS_2012$Month)
+Tuanan_<-subset(Tuanan_GPS_2012, with(Tuanan_GPS_2012, ID_Month %in% names(which(table(ID_Month)>=25))))
+nrow(Tuanan_)
 nrow(Tuanan_GPS_2012)
+
+# need to filter dataframe to remove duplicate pts or those within 25 minutes of one another
+elapsed <- function(x)
+{
+  y <- abs(as.duration(x[2:length(x)] %--% x[1:(length(x)-1)]))
+  y >= 15*60
+}
+
+Tuanan_GPS_to_Movebank<-Tuanan_ %>%
+  group_split(ID) %>%  
+  map_dfr(~ .[c(T, if (nrow(.) > 1) elapsed(.$timestamp)),])
+str(Tuanan_GPS_to_Movebank)
+
+library(dplyr)
+Tuanan_GPS_to_Movebank<-Tuanan_GPS_to_Movebank%>% dplyr::select('ID', 'x', '', 'identity', 'timestamp')
+table(is.na(Tuanan_GPS_to_Movebank$timestamp))
+strptime(Tuanan_GPS_to_Movebank$timestamp, "%Y-%m-%d %H:%M:%S")
 
 
 #write csv and add to movebank manually for ctmm
-write.csv(Tuanan_filtered, file="Tuanan GPS 2012_Corrected.txt")
+write.csv(Tuanan_GPS_to_Movebank, file="2012 GPS ID_month.csv")
 
 
 # log into movebank for file
@@ -50,7 +67,7 @@ names(SVF) <- names(orangs)
 FIT <- list()
 for(i in 1:length(orangs)){
   print(i)
-  GUESS <- ctmm.guess(orangs[[i]],CTMM=ctmm(error = 15), interactive=FALSE)
+  GUESS <- ctmm.guess(orangs[[i]],CTMM=ctmm, interactive=FALSE)
   FIT[[i]] <- ctmm.select(orangs[[i]],GUESS, verbose=TRUE,trace=2)
 }
 
@@ -77,15 +94,9 @@ names(AKDE) <- names(orangs)
 # others were not present in the study area for more than 2 months
 #in 2012: Bobo, Fayesh, Flumnmu, Fugit, Talia, Tuko
 
-OD_2012 <- getMovebankData(study="Tuanan 2012 Monthly GPS, Bornean Orangutan, Central Kalimatan, Indonesia,", login=login)
-as.data.frame(Tuanan_GPS_2012_Corrected)
-str(Tuanan_GPS_2012_Corrected)
-strptime(Tuanan_GPS_2012_Corrected$timestamp, format = "%Y-%m-%d %H:%M:%S")
-
-Tuanan_GPS_2012_Corrected$timestamp<-as.POSIXlt.character(Tuanan_GPS_2012_Corrected$timestamp, format="%Y-%m-%d %H:%M")
-
 # create as.telemetry object for ctmm models
-OD_tel<-as.telemetry(Tuanan_GPS_2012_Corrected, projection = "+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+OD_tel<-as.telemetry(object=Tuanan_GPS_to_Movebank, projection = "+init=epsg:32750 +proj=utm +zone=50 +units=m +south", mark.rm=TRUE)
+
 
 #fit movement models to each OD telemetry
 
@@ -122,11 +133,18 @@ Avail_pts$ID <- rownames(Avail_pts)
 library(tm)
 removeNumbers(Avail_pts$ID)
 Avail_pts$ID<- gsub("\\..*","",Avail_pts$ID)
-# select males of interest (those that were range resident in 2012)
+
+# remove month from the end of the ID
+Avail_pts$ID <- substr(as.character(Avail_pts$ID),
+                       start= 1, 
+                       stop= nchar(as.character(Avail_pts$ID) )-2 )
+#select males of interest (those that were range resident in 2012)
 
 Avail_pts<-Avail_pts[Avail_pts$ID %in% c("Chili", "Niko",  "Tomi", "Teju" , "Wodan"), ]
 str(Avail_pts)
-PT<-rep("Available",times=2510)
+View(Avail_pts)
+#Avail_pts<-Tuanan_GPS_to_Movebank[Tuanan_GPS_to_Movebank$identity %in% c("Chili", "Niko",  "Tomi", "Teju" , "Wodan"), ]
+PT<-rep("Available",times=1744)
 Avail_pts$PT<-PT
 
 
@@ -144,7 +162,7 @@ library(climateStability)
 ZeroRast<-Tuanan_r
 vals <- NA
 ZeroRast <- setValues(ZeroRast, vals)
-
+View(OD)
 Chili<-raster(AKDE[["Chili"]] , DF="PDF")
 Chili_Own<-raster.transformation(Chili, trans = "norm", smin = 0, smax = 1)
 sp::plot(Chili_Own)
@@ -165,12 +183,7 @@ Chili_rast12<-rescale0to1(Chili_rast12)
 
 Dayak_rast5<-raster(OD[["Dayak05"]], DF="PDF")
 Dayak_rast5<-rescale0to1(Dayak_rast5)
-Dayak_rast9<-raster(OD[["Dayak05"]], DF="PDF")
-Dayak_rast9<-rescale0to1(Dayak_rast9)
-Dayak_rast10<-raster(OD[["Dayak05"]], DF="PDF")
-Dayak_rast10<-rescale0to1(Dayak_rast10)
-Dayak_rast11<-raster(OD[["Dayak10"]], DF="PDF")
-Dayak_rast11<-rescale0to1(Dayak_rast11)
+
 
 Desy_rast<-raster(AKDE[["Desy"]] , DF="PDF")
 Desy_rast<-raster.transformation(Desy_rast, trans = "norm", smin = 0, smax = 1)
@@ -207,68 +220,72 @@ Kondor_rast<-raster.transformation(Kondor_rast, trans = "norm", smin = 0, smax =
 Mindy_rast<-raster(AKDE[["Mindy"]] , DF="PDF")
 Mindy_rast<-raster.transformation(Mindy_rast, trans = "norm", smin = 0, smax = 1)
 
-Niko_rast3<-raster(OD[["Niko.3"]] , DF="PDF")
+Niko_rast3<-raster(OD[["Niko03"]] , DF="PDF")
 Niko_rast3<-rescale0to1(Niko_rast3)
-Niko_rast5<-raster(OD[["Niko.5"]] , DF="PDF")
+Niko_rast5<-raster(OD[["Niko05"]] , DF="PDF")
 Niko_rast5<-rescale0to1(Niko_rast5)
-Niko_rast7<-raster(OD[["Niko.5"]] , DF="PDF")
+Niko_rast7<-raster(OD[["Niko05"]] , DF="PDF")
 Niko_rast7<-rescale0to1(Niko_rast7)
-Niko_rast9<-raster(OD[["Niko.9"]] , DF="PDF")
+Niko_rast9<-raster(OD[["Niko09"]] , DF="PDF")
 Niko_rast9<-rescale0to1(Niko_rast9)
 
-Otto_rast3<-raster(OD[["Otto.3"]] , DF="PDF")
+Otto_rast3<-raster(OD[["Otto03"]] , DF="PDF")
 Otto_rast3<-rescale0to1(Otto_rast3)
-Otto_rast8<-raster(OD[["Otto.8"]] , DF="PDF")
+Otto_rast8<-raster(OD[["Otto08"]] , DF="PDF")
 Otto_rast8<-rescale0to1(Otto_rast8)
 
-Teju_rast11<-raster(OD[["Teju.11"]] , DF="PDF")
+Preman_rast11<-raster(OD[["Preman11"]] , DF="PDF")
+Preman_rast11<-rescale0to1(Preman_rast11)
+Preman_rast12<-raster(OD[["Preman12"]] , DF="PDF")
+Preman_rast12<-rescale0to1(Preman_rast12)
+
+Teju_rast11<-raster(OD[["Teju11"]] , DF="PDF")
 Teju_rast11<-rescale0to1(Teju_rast11)
-Teju_rast12<-raster(OD[["Teju.12"]] , DF="PDF")
+Teju_rast12<-raster(OD[["Teju12"]] , DF="PDF")
 Teju_rast12<-rescale0to1(Teju_rast12)
 
-Tomi_rast3<-raster(OD[["Tomi.4"]] , DF="PDF")
+Tomi_rast3<-raster(OD[["Tomi04"]] , DF="PDF")
 Tomi_rast3<-rescale0to1(Tomi_rast3)
-Tomi_rast4<-raster(OD[["Tomi.4"]] , DF="PDF")
+Tomi_rast4<-raster(OD[["Tomi04"]] , DF="PDF")
 Tomi_rast4<-rescale0to1(Tomi_rast4)
-Tomi_rast5<-raster(OD[["Tomi.5"]] , DF="PDF")
+Tomi_rast5<-raster(OD[["Tomi05"]] , DF="PDF")
 Tomi_rast5<-rescale0to1(Tomi_rast5)
-Tomi_rast6<-raster(OD[["Tomi.6"]] , DF="PDF")
+Tomi_rast6<-raster(OD[["Tomi06"]] , DF="PDF")
 Tomi_rast6<-rescale0to1(Tomi_rast6)
-Tomi_rast7<-raster(OD[["Tomi.7"]] , DF="PDF")
+Tomi_rast7<-raster(OD[["Tomi07"]] , DF="PDF")
 Tomi_rast7<-rescale0to1(Tomi_rast7)
-Tomi_rast8<-raster(OD[["Tomi.8"]] , DF="PDF")
+Tomi_rast8<-raster(OD[["Tomi08"]] , DF="PDF")
 Tomi_rast8<-rescale0to1(Tomi_rast8)
-Tomi_rast9<-raster(OD[["Tomi.9"]] , DF="PDF")
+Tomi_rast9<-raster(OD[["Tomi09"]] , DF="PDF")
 Tomi_rast9<-rescale0to1(Tomi_rast9)
-Tomi_rast10<-raster(OD[["Tomi.10"]] , DF="PDF")
+Tomi_rast10<-raster(OD[["Tomi10"]] , DF="PDF")
 Tomi_rast10<-rescale0to1(Tomi_rast10)
-Tomi_rast11<-raster(OD[["Tomi.11"]] , DF="PDF")
+Tomi_rast11<-raster(OD[["Tomi11"]] , DF="PDF")
 Tomi_rast11<-rescale0to1(Tomi_rast11)
-Tomi_rast12<-raster(OD[["Tomi.12"]] , DF="PDF")
+Tomi_rast12<-raster(OD[["Tomi12"]] , DF="PDF")
 Tomi_rast12<-rescale0to1(Tomi_rast12)
 
 
-Wodan_rast3<-raster(OD[["Wodan.5"]] , DF="PDF")
+Wodan_rast3<-raster(OD[["Wodan05"]] , DF="PDF")
 Wodan_rast3<-rescale0to1(Wodan_rast3)
-Wodan_rast4<-raster(OD[["Wodan.5"]] , DF="PDF")
+Wodan_rast4<-raster(OD[["Wodan05"]] , DF="PDF")
 Wodan_rast4<-rescale0to1(Wodan_rast4)
-Wodan_rast5<-raster(OD[["Wodan.5"]] , DF="PDF")
+Wodan_rast5<-raster(OD[["Wodan05"]] , DF="PDF")
 Wodan_rast5<-rescale0to1(Wodan_rast5)
-Wodan_rast6<-raster(OD[["Wodan.6"]] , DF="PDF")
+Wodan_rast6<-raster(OD[["Wodan06"]] , DF="PDF")
 Wodan_rast6<-rescale0to1(Wodan_rast6)
-Wodan_rast7<-raster(OD[["Wodan.7"]] , DF="PDF")
+Wodan_rast7<-raster(OD[["Wodan07"]] , DF="PDF")
 Wodan_rast7<-rescale0to1(Wodan_rast7)
-Wodan_rast8<-raster(OD[["Wodan.8"]] , DF="PDF")
+Wodan_rast8<-raster(OD[["Wodan08"]] , DF="PDF")
 Wodan_rast8<-rescale0to1(Wodan_rast8)
-Wodan_rast9<-raster(OD[["Wodan.9"]] , DF="PDF")
+Wodan_rast9<-raster(OD[["Wodan09"]] , DF="PDF")
 Wodan_rast9<-rescale0to1(Wodan_rast9)
-Wodan_rast10<-raster(OD[["Wodan.11"]] , DF="PDF")
+Wodan_rast10<-raster(OD[["Wodan11"]] , DF="PDF")
 Wodan_rast10<-rescale0to1(Wodan_rast10)
-Wodan_rast11<-raster(OD[["Wodan.11"]] , DF="PDF")
+Wodan_rast11<-raster(OD[["Wodan11"]] , DF="PDF")
 Wodan_rast11<-rescale0to1(Wodan_rast11)
-Wodan_rast12<-raster(OD[["Wodan.12"]] , DF="PDF")
+Wodan_rast12<-raster(OD[["Wodan12"]] , DF="PDF")
 Wodan_rast12<-rescale0to1(Wodan_rast12)
-
 
 # get long call data on movebank
 login <- movebankLogin(username="llabarge", password="Samango1992!")
@@ -315,7 +332,7 @@ elapsed <- function(x)
 LC_points %>%
   group_split(ID) %>%  
   map_dfr(~ .[c(T, if (nrow(.) > 1) elapsed(.$timestamp)),])
-str(LC_points)
+str(Avail_pts)
 # removes around 200 points that were part of the same event leaving 1070
 ## this was because PAM system often recorded the same long calls as observation
 
@@ -324,6 +341,7 @@ str(LC_points)
 # bind the long calls (cases) and available pts (controls) together
 
 Avail_pts$Month <- str_sub(Avail_pts$timestamp, start = 6L, end = 7L)
+LC_points$Month <- str_sub(LC_points$timestamp, start = 6L, end = 7L)
 LC_com<-LC_points%>% dplyr::select('ID', 'PT', 'Month', 'x', 'y', 'timestamp')
 
 Av_com<-Avail_pts%>% dplyr::select('ID', 'PT', 'Month','x', 'y', 'timestamp')
@@ -413,6 +431,7 @@ LC_movebank<-LC_to_movebank%>% dplyr::select('id', 'latitude', 'longitude', 'Tim
 rownames(LC_movebank) <- NULL
 LongCalls_to_movebank<-as.data.frame(LC_movebank)
 head(LongCalls_to_movebank)
+
 # write txt to upload to movebank
 write.csv(LongCalls_to_movebank, file="LongCalls_to_movebank.txt")
 
@@ -437,7 +456,7 @@ names(LC_Monthly) <- names(LongCalls_Monthly)
 
 save(LC_Monthly, file="LC_Monthly.Rdata")
 
-
+View(LC_Monthly)
 
 # create rasters of each of these
 library(spatialEco)
@@ -585,7 +604,8 @@ Chili_Own <- raster::extract(Chili_Own, Chili_subset8_sp[,c("x", "y")])
 Chili_Dayak<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
 Chili_Henk<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
 Chili_Niko<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
-Chili_Otto8<-raster::extract(Otto_rast8, Chili_subset8_sp[,c("x", "y")])
+Chili_Preman<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
+Chili_Otto<-raster::extract(Otto_rast8, Chili_subset8_sp[,c("x", "y")])
 Chili_Katmandun<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
 Chili_Teju<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
 Chili_Tomi<-raster::extract(Tomi_rast8, Chili_subset8_sp[,c("x", "y")])
@@ -594,27 +614,44 @@ Chili_Juni<-raster::extract(Juni_rast, Chili_subset8_sp[,c("x", "y")])
 Chili_Inul<-raster::extract(Inul_rast, Chili_subset8_sp[,c("x", "y")])
 Chili_Kerry <-raster::extract(Kerry_rast, Chili_subset8_sp[,c("x", "y")])
 Chili_Mindy <-raster::extract(Mindy_rast, Chili_subset8_sp[,c("x", "y")])
+Dayak_08_LC<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
+Helium_08_LC<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
+Henk_08_LC<-raster::extract(Henk_08_LC, Chili_subset8_sp[,c("x", "y")])
+Katmandun_08_LC<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
 Niko_08_LC<-raster::extract(Niko_08_LC, Chili_subset8_sp[,c("x", "y")])
+Otto_08_LC<-raster::extract(Otto_08_LC, Chili_subset8_sp[,c("x", "y")])
+Preman_08_LC<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
 Teju_08_LC<-raster::extract(Teju_08_LC, Chili_subset8_sp[,c("x", "y")])
-Chili_8<-cbind(Chili_subset8_sp, Chili_Own, Chili_Dayak, Chili_Henk, Chili_Niko, Chili_Otto8, Chili_Katmandun, Chili_Teju, Chili_Tomi, Chili_Wodan, Chili_Juni, Chili_Inul, Chili_Kerry, Chili_Mindy, Niko_08_LC, Teju_08_LC)
+Tomi_08_LC<-raster::extract(ZeroRast, Chili_subset8_sp[,c("x", "y")])
+Wodan_08_LC<-raster::extract(Wodan_08_LC, Chili_subset8_sp[,c("x", "y")])
+Chili_8<-cbind(Chili_subset8_sp, Chili_Own, Chili_Dayak, Chili_Henk, Chili_Niko, Chili_Preman, Chili_Otto, Chili_Katmandun, Chili_Teju, Chili_Tomi, Chili_Wodan, Chili_Juni, Chili_Inul, Chili_Kerry, Chili_Mindy,Dayak_08_LC, Helium_08_LC, Henk_08_LC,Katmandun_08_LC, Niko_08_LC,Otto_08_LC , Preman_08_LC, Teju_08_LC, Tomi_08_LC, Wodan_08_LC)
 as.data.frame(Chili_8)
 names(Chili_8)[7] <- "Own"
 names(Chili_8)[8] <- "Dayak"
 names(Chili_8)[9] <- "Henk"
 names(Chili_8)[10] <- "Niko"
-names(Chili_8)[11] <- "Otto"
-names(Chili_8)[12] <- "Katmandun"
-names(Chili_8)[13] <- "Teju"
-names(Chili_8)[14] <- "Tomi"
-names(Chili_8)[15] <- "Wodan"
-names(Chili_8)[16] <- "Juni"
-names(Chili_8)[17] <- "Inul"
-names(Chili_8)[18] <- "Kerry"
-names(Chili_8)[19] <- "Mindy"
-names(Chili_8)[20]<-"Niko_LC"
-names(Chili_8)[21]<-"Teju_LC"
+names(Chili_8)[11] <- "Preman"
+names(Chili_8)[12] <- "Otto"
+names(Chili_8)[13] <- "Katmandun"
+names(Chili_8)[14] <- "Teju"
+names(Chili_8)[15] <- "Tomi"
+names(Chili_8)[16] <- "Wodan"
+names(Chili_8)[17] <- "Juni"
+names(Chili_8)[18] <- "Inul"
+names(Chili_8)[19] <- "Kerry"
+names(Chili_8)[20] <- "Mindy"
+names(Chili_8)[21]<-"Dayak_LC"
+names(Chili_8)[22]<-"Helium_LC"
+names(Chili_8)[23]<-"Henk_LC"
+names(Chili_8)[24]<-"Katmandun_LC"
+names(Chili_8)[25]<-"Niko_LC"
+names(Chili_8)[26]<-"Otto_LC"
+names(Chili_8)[27]<-"Preman_LC"
+names(Chili_8)[28]<-"Teju_LC"
+names(Chili_8)[29]<-"Tomi_LC"
+names(Chili_8)[30]<-"Wodan_LC"
 Chili_8<-as.data.frame(Chili_8@data)
-
+View(Chili_8)
 xy <- Chili_subset9[,c("x","y")]
 Chili_subset9_sp <- SpatialPointsDataFrame(coords = xy, data = Chili_subset9, proj4string = CRS)
 Chili_Own <- raster::extract(Chili_Own, Chili_subset9_sp[,c("x", "y")])
@@ -630,7 +667,16 @@ Chili_Juni<-raster::extract(Juni_rast, Chili_subset9_sp[,c("x", "y")])
 Chili_Inul<-raster::extract(Inul_rast, Chili_subset9_sp[,c("x", "y")])
 Chili_Kerry <-raster::extract(Kerry_rast, Chili_subset9_sp[,c("x", "y")])
 Chili_Mindy <-raster::extract(Mindy_rast, Chili_subset9_sp[,c("x", "y")])
-
+Dayak_09_LC<-raster::extract(Dayak_09_LC, Chili_subset9_sp[,c("x", "y")])
+Helium_09_LC<-raster::extract(Helium_09_LC, Chili_subset9_sp[,c("x", "y")])
+Henk_09_LC<-raster::extract(Henk_09_LC, Chili_subset9_sp[,c("x", "y")])
+Katmandun_09_LC<-raster::extract(Katmandun_09_LC, Chili_subset9_sp[,c("x", "y")])
+Niko_009_LC<-raster::extract(Niko_09_LC, Chili_subset9_sp[,c("x", "y")])
+Otto_009_LC<-raster::extract(Otto_09_LC, Chili_subset9_sp[,c("x", "y")])
+Preman_009_LC<-raster::extract(Preman_09_LC, Chili_subset9_sp[,c("x", "y")])
+Teju_009_LC<-raster::extract(Teju_09_LC, Chili_subset9_sp[,c("x", "y")])
+Tomi_09_LC<-raster::extract(Teju_09_LC, Chili_subset9_sp[,c("x", "y")])
+Wodan_09_LC<-raster::extract(Wodan_09_LC, Chili_subset9_sp[,c("x", "y")])
 
 Chili_9<-cbind(Chili_subset9_sp, Chili_Own, Chili_Dayak, Chili_Henk, Chili_Niko, Chili_Otto9, Chili_Katmandun, Chili_Teju, Chili_Tomi, Chili_Wodan, Chili_Juni, Chili_Inul, Chili_Kerry, Chili_Mindy)
 as.data.frame(Chili_9)
