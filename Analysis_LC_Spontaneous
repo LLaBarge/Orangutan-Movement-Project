@@ -1,0 +1,1383 @@
+
+# analysis of where and when six flanged Bornean orangutans tend to long call within
+# Tuanan, Central Kalimatan, Indonesia
+#install.packages("remotes")
+#remotes::install_github("pbs-assess/sdmTMB", dependencies = TRUE, force=TRUE, type="")
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+#BiocManager::install(c("graph", "Rgraphviz"), dep=TRUE)
+
+# install.packages("remotes")
+#remotes::install_github("n-kall/priorsense")
+#remotes::install_github("gfalbery/ggregplot")
+#remotes::install_github("timcdlucas/INLAutils")
+#remotes::install_github("julianfaraway/brinla")
+#remotes::install_github("INBO-BMK/INLA")
+#install.packages('TMB', type = 'source')
+
+
+
+library(ggplot2)
+library(ggregplot)
+library(dplyr)
+#library("devtools")
+#devtools::install_github(repo = "https://github.com/hrue/r-inla", subdir = "rinla", build = FALSE)
+#inla.upgrade(testing=TRUE)
+library(INLA)
+
+# load the data for each individual
+
+load(file="Chili_.csv")
+load(file="Henk_.csv")
+load(file="Niko_.csv")
+load(file="Teju_.csv")
+load(file="Tomi_.csv")
+load(file="Wodan_.csv")
+
+# get the datasets for each individual animal
+# Chili
+# set the response variable to numeric and set the timestamps for each individual
+Chili_$PT<-as.numeric(Chili_$PT)
+strftime(x=Chili_$timestamp, format="%Y-%m-%d %H:%M:%S")
+Chili_$time <- format(Chili_$timestamp,'%H:%M')
+Chili_$month <- format(Chili_$timestamp,'%m')
+Chili_$month<-as.factor(Chili_$month)
+Chili_[is.na(Chili_)] <- 0
+str(Chili_)
+
+#Henk
+Henk_$PT<-as.numeric(Henk_$PT)
+strftime(x=Henk_$timestamp, format="%Y-%m-%d %H:%M:%S")
+Henk_$time <- format(Henk_$timestamp,'%H:%M')
+Henk_$month <- format(Henk_$timestamp,'%m')
+Henk_$month<-as.factor(Henk_$month)
+Henk_[is.na(Henk_)] <- 0
+View(Henk_)
+#Niko
+Niko_$PT<-as.numeric(Niko_$PT)
+strftime(x=Niko_$timestamp, format="%Y-%m-%d %H:%M:%S")
+Niko_$time <- format(Niko_$timestamp,'%H:%M')
+Niko_$month <- format(Niko_$timestamp,'%m')
+Niko_$month<-as.factor(Niko_$month)
+Niko_[is.na(Niko_)] <- 0
+str(Niko_)
+# Teju
+Teju_$PT<-as.numeric(Teju_$PT)
+strftime(x=Teju_$timestamp, format="%Y-%m-%d %H:%M:%S")
+Teju_$time <- format(Teju_$timestamp,'%H:%M')
+Teju_$month <- format(Teju_$timestamp,'%m')
+Teju_$month<-as.factor(Teju_$month)
+Teju_[is.na(Teju_)] <- 0
+View(Teju_)
+#Tomi
+Tomi_$PT<-as.numeric(Tomi_$PT)
+strftime(x=Tomi_$timestamp, format="%Y-%m-%d %H:%M:%S")
+Tomi_$time <- format(Tomi_$timestamp,'%H:%M')
+Tomi_$month <- format(Tomi_$timestamp,'%m')
+Tomi_$month<-as.factor(Tomi_$month)
+Tomi_[is.na(Tomi_)] <- 0
+str(Tomi_)
+# Wodan
+Wodan_$PT<-as.numeric(Wodan_$PT)
+strftime(x=Wodan_$timestamp, format="%Y-%m-%d %H:%M:%S")
+Wodan_$time <- format(Wodan_$timestamp,'%H:%M')
+Wodan_$month <- format(Wodan_$timestamp,'%m')
+Wodan_$month<-as.factor(Wodan_$month)
+Wodan_[is.na(Wodan_)] <- 0
+View(Wodan_)
+
+# stanardize continuous variables
+
+scale(Chili_[5,18:21])
+scale(Henk_[5,18:21])
+scale(Niko_[5,18:21])
+scale(Tomi_[5,18:21])
+scale(Teju_[5,18:21])
+scale(Wodan_[4,17:20])
+
+# check for collinearity 
+library(lme4)
+library(DHARMa)
+head(Chili_)
+fittedModel <- lm(PT ~ LC_comp+Henk_comp+Tomi_comp+Teju_comp++Chili_comp+Juni+Inul+Kerry+Mindy+Association, data = Wodan_)
+car::vif(fittedModel)
+
+# relatively low VIFs, despite overlap between some females, all below or equal to 1.6
+
+res2 = recalculateResiduals(res)
+testSpatialAutocorrelation(res2, 
+                           x =  aggregate(Chili_df$x, list(Chili_df$month), mean)$x, 
+                           y = aggregate(Chili_df$y, list(Chili_df$month), mean)$x)
+
+# These predictors are all slopes because we want to know about these factors within and between individuals
+library(brms)
+Chili_mod<-brms::brm(PT ~ LC_comp+ Wodan_LC+Henk_LC+Tomi_LC+Teju_LC+Otto_LC+Chili+Juni+Inul+Kerry+Mindy+Association, family = bernoulli, data=Chili_df,  iter = 5000, warmup = 1000, chains = 4, cores = 3, control = list(max_treedepth=15), save_pars = save_pars(all = TRUE))
+summary(Chili_mod)
+
+# create a spatial mesh using the coordinates in the data frame
+# working in km is easier than m for creating the mesh with INLA so divide the x and y columns by 1000
+Chili_$X<-(Chili_$x/1000)
+Chili_$Y<-(Chili_$y/1000)
+Henk_$X<-(Henk_$x/1000)
+Henk_$Y<-(Henk_$y/1000)
+Niko_$X<-(Niko_$x/1000)
+Niko_$Y<-(Niko_$y/1000)
+Teju_$X<-(Teju_$x/1000)
+Teju_$Y<-(Teju_$y/1000)
+Tomi_$X<-(Tomi_$x/1000)
+Tomi_$Y<-(Tomi_$y/1000)
+Wodan_$X<-(Wodan_$x/1000)
+Wodan_$Y<-(Wodan_$y/1000)
+
+# create spatial weights
+Chili_$weights <- ifelse(Chili_$PT == 1, 1, 1000)
+Henk_$weights <- ifelse(Henk_$PT == 1, 1, 1000)
+Niko_$weights <- ifelse(Niko_$PT == 1, 1, 1000)
+Teju_$weights <- ifelse(Teju_$PT == 1, 1, 1000)
+Tomi_$weights <- ifelse(Tomi_$PT == 1, 1, 1000)
+Wodan_$weights <- ifelse(Wodan_$PT == 1, 1, 1000)
+
+#enable spatial weights
+inla.setOption("enable.inla.argument.weights", TRUE)
+
+View(Chili_)
+scale(Chili_[6:23])
+# model formulas
+Chili_full_form <- (PT ~-1+ Association+Chili+Juni + Inul + Kerry + Mindy +LC_comp)
+
+Henk_full_form <-( PT ~ -1 + Henk + Juni + Inul + Kerry + Mindy+ +LC_comp)
+
+Niko_full_form <- (PT ~-1+Niko+Association+ Juni + Inul + Kerry + Mindy+LC_comp)
+
+Tomi_full_form <- (PT ~ -1+Tomi+Association+Inul+Mindy+Juni+Kerry+LC_comp)
+
+Teju_full_form <- (PT ~ -1+Teju+Association+Inul+Mindy+Juni+Kerry+LC_comp)
+
+Wodan_full_form <-( PT ~ -1+Wodan+Juni+Inul+Mindy+Kerry+Association + LC_comp) 
+                                                                                                                                   
+# run the models
+
+Chili_mod <- inla(Chili_full_form, Chili_$weights, family = "binomial", data = Chili_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Chili_mod)
+
+Henk_mod <- inla(Henk_full_form,Henk_$weights, family = "binomial", data = Henk_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Henk_mod)
+
+Niko_mod <- inla(Niko_full_form, Niko_$weights, family = "binomial", data = Niko_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Niko_mod)
+
+
+Teju_mod <- inla(Teju_full_form, Teju_$weights, family = "binomial", data = Teju_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Teju_mod)
+
+
+Tomi_mod <- inla(Tomi_full_form, Tomi_$weights, family = "binomial", data = Tomi_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Tomi_mod)
+
+Wodan_mod <- inla(Wodan_full_form, Wodan_$weights, family = "binomial", data = Wodan_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Wodan_mod)
+Wodan_mod
+
+# data preparation for spatial models and space-time models(grouped/discrete only)
+
+# set k to number of months as risk is updated monthly
+k=length(unique(Chili_$month))
+Chili_$num_month = as.numeric(Chili_$month)
+
+# cbind x and y coordinates
+Locations = cbind(Chili_$X, Chili_$Y) # cbind locations for each
+
+# spatial mesh
+Chili_INLA_mesh<-INLA::inla.mesh.2d(Locations, max.edge = c(0.5, 0.5)) # mesh 
+plot(Chili_INLA_mesh)
+# SPDE
+Chili.spde = INLA::inla.spde2.pcmatern(mesh =Chili_INLA_mesh, prior.range = c(1, 0.5), prior.sigma = c(.5, .5)) # Making SPDE
+
+
+# number of months for grouping
+NGroups <- length(unique(Chili_$month))
+
+# create an A matrix
+ChiliA2 <- inla.spde.make.A(Chili_INLA_mesh,
+                            loc = Locations, 
+                            group = as.numeric(as.factor(Chili_$month)),# this must be a numeric value counting from 1. If the groups variable is a factor, this will happen by default.
+                            n.group = NGroups) 
+# weights
+w.Chili2 <- inla.spde.make.index(
+  name    = 'w', 
+  n.spde  = Chili.spde$n.spde,
+  n.group = NGroups)  
+
+# create a stack stack
+stack <- inla.stack(
+  data = Chili_ %>%
+    dplyr::select(PT) %>%
+    as.list(),
+  A = list(ChiliA2, 1),
+  effects = list(
+    c(
+      w.Chili2,
+      list(intercept = rep(1, Chili.spde$n.spde))
+    ),
+    Chili_ %>%
+      dplyr::select(Chili , Association , Juni , Inul , Kerry , Mindy , Henk_LC , Niko_LC ,Otto_LC, Teju_LC , Tomi_LC , Wodan_LC , Henk , Niko ,Otto , Teju , Tomi , Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# prep for continuous time model
+#specify number of knots
+kt <- 2
+
+timestamp<-as.numeric(Chili_$timestamp)
+
+# create a time mesh
+mesh.t <- inla.mesh.1d(seq(0 + 0.5 / kt, 1 - 0.5 / kt, length = kt))
+
+# create a new mesh for continuous time
+iset <- inla.spde.make.index('i', n.spde = Chili.spde$n.spde, 
+                             n.group = kt)
+
+
+# a new A matrix for continuous time space model
+Chili_st_A <- inla.spde.make.A(mesh = Chili_INLA_mesh, loc = Locations, 
+                               group = timestamp, group.mesh = mesh.t) 
+
+
+# create a separate stack for this model
+stack_st <- inla.stack(
+  data = Chili_ %>%
+    dplyr::select(PT) %>%
+    as.list(),
+  A = list(Chili_st_A, 1),
+  effects = list(
+    c(
+      iset,
+      list(intercept = rep(1, Chili.spde$n.spde))
+    ),
+    Chili_ %>%
+      dplyr::select(Chili , Association , Juni , Inul , Kerry , Mindy , Henk_LC , Niko_LC ,Otto_LC, Teju_LC , Tomi_LC , Wodan_LC , Henk , Niko ,Otto , Teju , Tomi , Wodan, LC_comp, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# set hyper prior prior
+h.spec <- list(rho = list(prior = 'pc.cor1', param = c(0, 0.9)))
+
+
+
+# space-time model for chili with time grouped by month with ar1 
+
+
+form_chili_group <- PT ~ Chili+ f(w, model = Chili.spde, group = w.group, control.group = list(model = 'ar1',hyper = h.spec))
+form_chili_space_on <- PT ~  Chili+ f(w, model = Chili.spde)
+form_chili_conti_time <- PT ~  Chili+ f(i, model = Chili.spde, group = i.group, 
+                                          control.group = list(model = 'ar1', hyper = h.spec)) 
+form_chili_conti_time_no_sp <- PT ~ Chili+ f(i,group = i.group, 
+                                              control.group = list(model = 'ar1', hyper = h.spec))
+form_chili_group_no_sp <- PT ~ Chili+ f(w,group = w.group, 
+                                            control.group = list(model = 'ar1', hyper = h.spec))
+
+
+# Model fitting of the spatial, temporal, time-grouped model, spatial only model, continuous time models
+
+# monthly groups, continuous space
+Chili_grouped <- inla(form_chili_group, family="binomial",Ntrials = 1,  data = inla.stack.data(stack), 
+                      control.predictor = list(compute = TRUE, A = inla.stack.A(stack)), 
+                      control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                      control.fixed = list(expand.factor.strategy = 'inla'))
+
+# spatial model, not temporal
+Chili_chili_space_on <- inla(form_chili_space_on, family="binomial",Ntrials = 1, data = inla.stack.data(stack), 
+                             control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                             control.predictor = list(compute = TRUE,
+                                                      A = inla.stack.A(stack)), 
+                             control.fixed = list(expand.factor.strategy = 'inla'))
+# continous space time
+chili_conti_time <- inla(form_chili_conti_time, family="binomial",Ntrials = 1, data = inla.stack.data(stack_st), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(stack_st)))
+# continuous ar1 time no spatial
+chili_conti_time_no_sp <- inla(form_chili_conti_time_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(stack_st), 
+                               control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                               control.predictor = list(compute = TRUE,
+                                                        A = inla.stack.A(stack_st)))
+
+# discrete time no spatial
+chili_group_no_sp <- inla(form_chili_group_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(stack), 
+                          control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                          control.predictor = list(compute = TRUE,
+                                                   A = inla.stack.A(stack)))
+
+
+# list the models and visualize the WAIC to choose the best structure for Chili's models
+Spatial_Chili_List <- list(Chili_grouped, Chili_chili_space_on, chili_conti_time, chili_conti_time_no_sp, chili_group_no_sp, Chili_mod)
+INLADICFig(Spatial_Chili_List, ModelNames = c("SPDE-Discrete time", "SPDE (Spatial only)", "SPDE-continuous(ar1) time", "Temporal_Continuous(ar1)", "Temporal_Monthly(ar1)", "Spatial weights only"))
+
+
+
+Marginal log-Likelihood:  -99.32 
+CPO and PIT are computed
+-mean(log(chili_group_no_sp$cpo$cpo))
+summary(chili_conti_time_no_sp)
+-mean(log(chili_conti_time_no_sp$cpo$cpo))
+summary(chili_conti_time)
+-mean(log(chili_conti_time$cpo$cpo))
+summary(Chili_chili_space_on)
+-mean(log(Chili_chili_space_on$cpo$cpo))
+summary(Chili_grouped)
+-mean(log(Chili_grouped$cpo$cpo))
+summary(chili_conti_time_spw)
+summary(chili_group_spw)
+summary(Chili_mod)
+-mean(log(Chili_mod$cpo$cpo))
+
+# best model is SPDE incorporating continuous AR1 time
+
+
+# Chili full model
+# Niko, Henk are not included because OD rasters were entirely zero
+
+Chili_full_form <- (PT ~-1+ Association+Chili+Juni + Inul + Kerry + Mindy +LC_comp + f(w, model = Chili.spde, group = w.group, control.group = list(model = 'ar1',hyper = h.spec)))
+
+# run the INLA model
+# continuous ar1 time no spatial
+
+Chili_full_mod <- inla(Chili_full_form, family="binomial",Ntrials = 1,  data = inla.stack.data(stack), 
+                      control.predictor = list(compute = TRUE, A = inla.stack.A(stack)), 
+                      control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                      control.fixed = list(expand.factor.strategy = 'inla'))
+
+# model summary and CPO
+summary(Chili_full_mod)
+-mean(log(Chili_full_mod$cpo$cpo))
+
+
+
+# create a marginal plot for fixed effects
+library(brinla)
+library(INLAutils)
+autoplot(Chili_full_mod,which=1, priors = FALSE, CI = TRUE)
+library(ggplot2)
+
+# Models for Henk
+
+# data preparation for spatial models and space-time models(grouped/discrete only)
+Henk_$PT<-as.numeric(Henk_$PT)
+# set k to number of months as risk is updated monthly
+k=length(unique(Henk_$month))
+Henk_$num_month = as.numeric(Henk_$month)
+
+
+Henk_Locations = cbind(Henk_$X, Henk_$Y) # cbind locations for each
+plot(Henk_$x, Henk_$y)
+# spatial mesh
+
+Henk_INLA_mesh<-INLA::inla.mesh.2d(Henk_Locations , max.edge = c(0.5, 0.5))
+
+
+# SPDE
+Henk.spde = INLA::inla.spde2.pcmatern(mesh =Henk_INLA_mesh, prior.range = c(10, 0.5), prior.sigma = c(.5, .5)) # Making SPDE
+
+# number of months for grouping
+Henk_NGroups <- length(unique(Henk_$month))
+Henk_NGroups
+# create an A matrix
+HenkA2 <- inla.spde.make.A(Henk_INLA_mesh, # Leave
+                           loc = Henk_Locations, # Leave
+                           group = as.numeric(as.factor(Henk_$month)),# this must be a numeric value counting from 1. If the groups variable is a factor, this will happen by default.
+                           n.group = Henk_NGroups) 
+# weights
+w.Henk2 <- inla.spde.make.index(
+  name    = 'Nw', 
+  n.spde  = Henk.spde$n.spde,
+  n.group = Henk_NGroups)  
+
+# create a stack stack
+N_stack <- INLA::inla.stack(
+  data = Henk_ %>% dplyr::select(PT) %>%
+    as.list(),
+  A = list(HenkA2, 1),
+  effects = list(
+    c(
+      w.Henk2,
+      list(intercept = rep(1, Henk.spde$n.spde))
+    ),
+    Henk_ %>%
+      dplyr::select(Henk, Juni , Inul , Kerry , Mindy , Niko_LC , Chili_LC ,Otto_LC, Teju_LC , Tomi_LC , Wodan_LC ,Niko , Chili ,Otto , Teju , Tomi , Wodan, LC_comp, ) %>%
+      as.list()
+  )
+)
+
+
+# prep for continuous time model
+#specify number of knots
+kt <- 2
+
+timestamp<-as.numeric(as.POSIXct(Henk_$timestamp))
+
+# create a time mesh
+Nmesh.t <- inla.mesh.1d(seq(0 + 0.5 / kt, 1 - 0.5 / kt, length = kt))
+
+# create a new mesh for continuous time
+Niset <- inla.spde.make.index('Ni', n.spde = Henk.spde$n.spde, 
+                              n.group = kt)
+
+Niset
+# a new A matrix for continuous time space model
+Henk_st_A <- inla.spde.make.A(mesh = Henk_INLA_mesh, loc = Henk_Locations, 
+                              group = timestamp, group.mesh = Nmesh.t) 
+
+
+# create a separate stack for this model
+N_stack_st <- INLA::inla.stack(
+  data = Henk_ %>% 
+    dplyr::select(PT) %>%
+    as.list(),
+  A = list(Henk_st_A, 1),
+  effects = list(
+    c(
+      Niset,
+      list(intercept = rep(1, Henk.spde$n.spde))
+    ),
+    Henk_ %>%
+      dplyr::select(Henk, Juni, Inul, Kerry, Mindy, Niko_LC, Chili_LC, Otto_LC, Teju_LC, Tomi_LC, Wodan_LC, Niko, Chili, Otto, Teju, Tomi, Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# set hyper prior prior
+h.spec <- list(rho = list(prior = 'pc.cor1', param = c(0, 0.9)))
+# PC prior on the autoreg. param.
+prec.prior <- list(prior = 'pc.prec', param = c(1, 0.01))
+
+# space-time model for Henk with time grouped by month with ar1 
+
+form_Henk_group <- PT ~-1+ Henk+ f(Nw, model = Henk.spde, group = Nw.group, 
+                                   control.group = list(model = 'ar1',hyper = h.spec))
+
+form_Henk_group_no_sp <- PT ~-1+ Henk+ f(Nw, group = Nw.group, 
+                                         control.group = list(model = 'ar1',hyper = h.spec))
+form_Henk_space_on <- PT ~-1+ Henk+ f(Nw, model = Henk.spde)
+form_Henk_conti_time <- PT ~-1+ Henk+ f(Ni, model = Henk.spde, group = Ni.group, 
+                                        control.group = list(model = 'ar1', hyper = h.spec)) 
+form_Henk_conti_time_no_sp <- PT ~-1+ Henk+ f(Ni,group = Ni.group, 
+                                              control.group = list(model = 'ar1', hyper = h.spec))
+
+
+# Model fitting of the spatial, temporal, time-grouped model, spatial only model, continuous time models
+
+# monthly groups, continuous space
+Henk_grouped <- inla(form_Henk_group, family="binomial",Ntrials = 1,  data = inla.stack.data(N_stack), 
+                     control.predictor = list(compute = TRUE, A = inla.stack.A(N_stack)), 
+                     control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                     control.fixed = list(expand.factor.strategy = 'inla'))
+
+# spatial model, not temporal
+Henk_Henk_space_on <- inla(form_Henk_space_on, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack), 
+                           control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                           control.predictor = list(compute = TRUE,
+                                                    A = inla.stack.A(N_stack)), 
+                           control.fixed = list(expand.factor.strategy = 'inla'))
+# continous space time
+Henk_conti_time <- inla(form_Henk_conti_time, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack_st), 
+                        control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                        control.predictor = list(compute = TRUE,
+                                                 A = inla.stack.A(N_stack_st)))
+# continuous ar1 time no spatial
+Henk_conti_time_no_sp <- inla(form_Henk_conti_time_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack_st), 
+                              control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                              control.predictor = list(compute = TRUE,
+                                                       A = inla.stack.A(N_stack_st)))
+
+# discrete time no spatial
+Henk_group_no_sp <- inla(form_Henk_group_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(N_stack)))
+
+
+
+
+# list the models and visualize the WAIC to choose the best structure for Henk's models
+Spatial_Henk_List <- list(Henk_grouped, Henk_Henk_space_on, Henk_conti_time, Henk_conti_time_no_sp, Henk_group_no_sp, Henk_mod)
+INLADICFig(Spatial_Henk_List, ModelNames = c("SPDE-Discrete time", "SPDE (Spatial only)", "SPDE-continuous(ar1) time", "Temporal_Continuous(ar1)", "Temporal_Monthly(ar1)", "Spatial weights only"))
+
+# record DIC, WAIC and CPO (calculated as the mean log of model values)
+summary(Henk_group_no_sp)
+-mean(log(Henk_group_no_sp$cpo$cpo))
+summary(Henk_conti_time_no_sp)
+-mean(log(Henk_conti_time_no_sp$cpo$cpo))
+summary(Henk_conti_time)
+-mean(log(Henk_conti_time$cpo$cpo))
+summary(Henk_Henk_space_on)
+-mean(log(Henk_Henk_space_on$cpo$cpo))
+summary(Henk_grouped)
+-mean(log(Henk_grouped$cpo$cpo))
+summary(Henk_conti_time_spw)
+-mean(log(Henk_conti_time$cpo$cpo))
+summary(Henk_group)
+-mean(log(Henk_group$cpo$cpo))
+summary(Henk_mod)
+-mean(log(Henk_mod$cpo$cpo))
+
+# SPDE model only favored
+
+# formula
+
+
+Henk_full_form <- PT ~ -1 + Henk + Juni + Inul + Kerry + Mindy +LC_comp+ f(Nw, model = Henk.spde)
+
+# full model henk
+
+Henk_full_mod <- inla(Henk_full_form, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack), 
+                      control.compute = list(waic = TRUE, cpo = TRUE),
+                      control.predictor = list(compute = TRUE,
+                                               A = inla.stack.A(N_stack)))
+
+
+
+# summary of fixed effects
+summary(Henk_full_mod)
+-mean(log(Henk_full_mod$cpo$cpo))
+
+# create a marginal plot for fixed effects
+library(brinla)
+library(INLAutils)
+library(ggplot2)
+autoplot(Henk_full_mod,which=1, priors = FALSE, CI = TRUE)
+
+
+# Models for Niko
+
+# data preparation for spatial models and space-time models(grouped/discrete only)
+Niko_$PT<-as.numeric(Niko_$PT)
+
+# set k to number of months as risk is updated monthly
+k=length(unique(Niko_$month))
+Niko_$num_month = as.numeric(Niko_$month)
+
+
+Niko_Locations = cbind(Niko_$X, Niko_$Y) # cbind locations for each
+plot(Niko_$x, Niko_$y)
+# spatial mesh
+plot(Niko_Locations)
+Niko_INLA_mesh<-INLA::inla.mesh.2d(Niko_Locations , max.edge = c(0.5, 0.5))
+
+plot(Niko_INLA_mesh)
+# SPDE
+Niko.spde = INLA::inla.spde2.pcmatern(mesh =Niko_INLA_mesh, prior.range = c(10, 0.5), prior.sigma = c(.5, .5)) # Making SPDE
+
+# number of months for grouping
+Niko_NGroups <- length(unique(Niko_$month))
+Niko_NGroups
+# create an A matrix
+NikoA2 <- inla.spde.make.A(Niko_INLA_mesh, # Leave
+                           loc = Niko_Locations, # Leave
+                           group = as.numeric(as.factor(Niko_$month)),# this must be a numeric value counting from 1. If the groups variable is a factor, this will happen by default.
+                           n.group = Niko_NGroups) 
+# weights
+w.Niko2 <- inla.spde.make.index(
+  name    = 'Nw', 
+  n.spde  = Niko.spde$n.spde,
+  n.group = Niko_NGroups)  
+
+# create a stack stack
+N_stack <- INLA::inla.stack(
+  data = Niko_ %>% dplyr::select(PT) %>%
+    as.list(),
+  A = list(NikoA2, 1),
+  effects = list(
+    c(
+      w.Niko2,
+      list(intercept = rep(1, Niko.spde$n.spde))
+    ),
+    Niko_ %>%
+      dplyr::select(Niko, Association , Juni , Inul , Kerry , Mindy , Henk_LC , Chili_LC ,Otto_LC, Teju_LC , Tomi_LC , Wodan_LC , Henk , Chili ,Otto , Teju , Tomi , Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+
+# prep for continuous time model
+#specify number of knots
+kt <- 2
+
+timestamp<-as.numeric(as.POSIXct(Niko_$timestamp))
+
+# create a time mesh
+Nmesh.t <- inla.mesh.1d(seq(0 + 0.5 / kt, 1 - 0.5 / kt, length = kt))
+
+# create a new mesh for continuous time
+Niset <- inla.spde.make.index('Ni', n.spde = Niko.spde$n.spde, 
+                              n.group = kt)
+
+# make sure response is numeric
+Niko_$PT<-as.numeric(Niko_$PT)
+# a new A matrix for continuous time space model
+Niko_st_A <- inla.spde.make.A(mesh = Niko_INLA_mesh, loc = Niko_Locations, 
+                              group = timestamp, group.mesh = Nmesh.t) 
+
+
+# create a separate stack for this model
+N_stack_st <- INLA::inla.stack(
+  data = Niko_ %>% 
+    dplyr::select(PT) %>%
+    as.list(),
+  A = list(Niko_st_A, 1),
+  effects = list(
+    c(
+      Niset,
+      list(intercept = rep(1, Niko.spde$n.spde))
+    ),
+    Niko_ %>%
+      dplyr::select(Niko, Association, Juni, Inul, Kerry, Mindy,  Henk_LC, Chili_LC, Otto_LC, Teju_LC, Tomi_LC, Wodan_LC, Henk, Chili, Otto, Teju, Tomi, Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# set hyper prior prior
+h.spec <- list(rho = list(prior = 'pc.cor1', param = c(0, 0.9)))
+
+
+
+#Niko models -1 for intercept because it's already included in the A matrix
+
+form_Niko_group <- PT ~-1+ Niko+ f(Nw, model = Niko.spde, group = Nw.group, 
+                                   control.group = list(model = 'ar1',hyper = h.spec))
+
+form_Niko_group_no_sp <- PT ~-1+ Niko+ f(Nw, group = Nw.group, 
+                                         control.group = list(model = 'ar1',hyper = h.spec))
+form_Niko_space_on <- PT ~-1+ Niko+ f(Nw, model = Niko.spde)
+form_Niko_conti_time <- PT ~-1+ Niko+ f(Ni, model = Niko.spde, group = Ni.group, 
+                                        control.group = list(model = 'ar1', hyper = h.spec)) 
+form_Niko_conti_time_no_sp <- PT ~-1+ Niko+ f(Ni,group = Ni.group, 
+                                              control.group = list(model = 'ar1', hyper = h.spec))
+
+
+
+# Model fitting of the spatial, temporal, time-grouped model, spatial only model, continuous time models
+
+# monthly groups, continuous space
+Niko_grouped <- inla(form_Niko_group, family="binomial",Ntrials = 1,  data = inla.stack.data(N_stack), 
+                     control.predictor = list(compute = TRUE, A = inla.stack.A(N_stack)), 
+                     control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                     control.fixed = list(expand.factor.strategy = 'inla'))
+
+# spatial model, not temporal
+Niko_Niko_space_on <- inla(form_Niko_space_on, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack), 
+                           control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                           control.predictor = list(compute = TRUE,
+                                                    A = inla.stack.A(N_stack)), 
+                           control.fixed = list(expand.factor.strategy = 'inla'))
+# continous space time
+Niko_conti_time <- inla(form_Niko_conti_time, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack_st), 
+                        control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                        control.predictor = list(compute = TRUE,
+                                                 A = inla.stack.A(N_stack_st)))
+# continuous ar1 time no spatial
+Niko_conti_time_no_sp <- inla(form_Niko_conti_time_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack_st), 
+                              control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                              control.predictor = list(compute = TRUE,
+                                                       A = inla.stack.A(N_stack_st)))
+
+# discrete time no spatial
+Niko_group_no_sp <- inla(form_Niko_group_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(N_stack)))
+
+
+
+
+# list the models and visualize the WAIC to choose the best structure for Niko's models
+Spatial_Niko_List <- list(Niko_grouped, Niko_Niko_space_on, Niko_conti_time, Niko_conti_time_no_sp, Niko_group_no_sp, Niko_mod)
+INLADICFig(Spatial_Niko_List, ModelNames = c("SPDE-Discrete time", "SPDE (Spatial only)", "SPDE-continuous(ar1) time", "Temporal_Continuous(ar1)", "Temporal_Monthly(ar1)", "Spatial weights only"))
+
+# spatial weights only is the best model for Niko
+
+# record DIC, WAIC and CPO (calculated as the mean log of model values)
+summary(Niko_group_no_sp)
+-mean(log(Niko_group_no_sp$cpo$cpo))
+summary(Niko_conti_time_no_sp)
+-mean(log(Niko_conti_time_no_sp$cpo$cpo))
+summary(Niko_conti_time)
+-mean(log(Niko_conti_time$cpo$cpo))
+summary(Niko_Niko_space_on)
+-mean(log(Niko_Niko_space_on$cpo$cpo))
+summary(Niko_grouped)
+-mean(log(Niko_grouped$cpo$cpo))
+summary(Niko_conti_time_spw)
+-mean(log(Niko_conti_time_spw$cpo$cpo))
+summary(Niko_group_spw)
+-mean(log(Niko_group_spw$cpo$cpo))
+summary(Niko_mod)
+-mean(log(Niko_mod$cpo$cpo))
+
+
+# Niko data best modeled using SPDE but no temporal autocorrelation
+
+# formula 
+# by looking at raw data, Niko was hardly ever near Kerry
+Niko_full_form <- (PT ~-1+Niko+Association + Juni + Inul + Mindy+ Kerry+ LC_comp+ f(Nw, model = Niko.spde))
+
+# run the INLA model
+# spatial model, not temporal
+Niko_full_mod <- inla(Niko_full_form, family="binomial",Ntrials = 1, data = inla.stack.data(N_stack), 
+                           control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                           control.predictor = list(compute = TRUE,
+                                                    A = inla.stack.A(N_stack)), 
+                           control.fixed = list(expand.factor.strategy = 'inla'))
+
+
+
+# sumary of fixed effects
+summary(Niko_full_mod)
+-mean(log(Niko_full_mod$cpo$cpo))
+View(Niko_)
+# create a marginal plot for fixed effects
+library(brinla)
+library(INLAutils)
+library(ggplot2)
+autoplot(Niko_mod,which=1, priors = FALSE, CI = TRUE)
+
+
+
+# Models for Teju
+
+# data preparation for spatial models and space-time models(grouped/discrete only)
+Teju_$PT<-as.numeric(Teju_$PT)
+# set k to number of months as risk is updated monthly
+k=length(unique(Teju_$month))
+Teju_$num_month = as.numeric(Teju_$month)
+
+# cbind x and y coordinates
+Teju_$X<-Teju_$x/1000
+Teju_$Y<-Teju_$y/1000
+Teju_Locations = cbind(Teju_$X, Teju_$Y) # cbind locations for each
+plot(Teju_$x, Teju_$y)
+# spatial mesh
+plot(Teju_Locations)
+Teju_INLA_mesh<-INLA::inla.mesh.2d(Teju_Locations , max.edge = c(0.5, 0.5))
+
+plot(Teju_INLA_mesh)
+# SPDE
+Teju.spde = INLA::inla.spde2.pcmatern(mesh =Teju_INLA_mesh, prior.range = c(10, 0.5), prior.sigma = c(.5, .5)) # Making SPDE
+
+# number of months for grouping
+Teju_NGroups <- length(unique(Teju_$month))
+Teju_NGroups
+# create an A matrix
+TejuA2 <- inla.spde.make.A(Teju_INLA_mesh, # Leave
+                           loc = Teju_Locations, # Leave
+                           group = as.numeric(as.factor(Teju_$month)),# this must be a numeric value counting from 1. If the groups variable is a factor, this will happen by default.
+                           n.group = Teju_NGroups) 
+# weights
+w.Teju2 <- inla.spde.make.index(
+  name    = 'Tw', 
+  n.spde  = Teju.spde$n.spde,
+  n.group = Teju_NGroups)  
+
+# create a stack stack
+T_stack <- INLA::inla.stack(
+  data = Teju_ %>% dplyr::select(PT) %>%
+    as.list(),
+  A = list(TejuA2, 1),
+  effects = list(
+    c(
+      w.Teju2,
+      list(intercept = rep(1, Teju.spde$n.spde))
+    ),
+    Teju_ %>%
+      dplyr::select(Teju, Association , Juni , Inul , Kerry , Mindy , Henk_LC , Chili_LC ,Otto_LC, Niko_LC , Tomi_LC , Wodan_LC , Henk , Chili ,Otto , Niko, Tomi , Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+
+# prep for continuous time model
+#specify number of knots
+
+kt <- 2
+
+timestamp<-as.numeric(as.POSIXct(Teju_$timestamp))
+
+# create a time mesh
+Tmesh.t <- inla.mesh.1d(seq(0 + 0.5 / kt, 1 - 0.5 / kt, length = kt))
+
+# create a new mesh for continuous time
+Tiset <- inla.spde.make.index('Ti', n.spde = Teju.spde$n.spde, 
+                              n.group = kt)
+
+
+# a new A matrix for continuous time space model
+Teju_st_A <- inla.spde.make.A(mesh = Teju_INLA_mesh, loc = Teju_Locations, 
+                              group = timestamp, group.mesh = Tmesh.t) 
+
+
+# create a separate stack for this model
+T_stack_st <- INLA::inla.stack(
+  data = Teju_ %>% 
+    dplyr::select(PT) %>%
+    as.list(),
+  A = list(Teju_st_A, 1),
+  effects = list(
+    c(
+      Tiset,
+      list(intercept = rep(1, Teju.spde$n.spde))
+    ),
+    Teju_ %>%
+      dplyr::select(Teju, Association, Juni, Inul, Kerry, Mindy, Henk_LC, Chili_LC, Otto_LC, Niko_LC, Tomi_LC, Wodan_LC, Henk, Chili, Otto, Niko, Tomi, Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# set hyper prior prior
+h.spec <- list(rho = list(prior = 'pc.cor1', param = c(0, 0.9)))
+
+
+# space-time model for Teju with time grouped by month with ar1 
+
+form_Teju_group <- PT ~ -1+Teju+ f(Tw, model = Teju.spde, group = Tw.group, 
+                                   control.group = list(model = 'ar1',hyper = h.spec))
+
+form_Teju_space_on <- PT ~ -1+Teju+ f(Tw, model = Teju.spde)
+form_Teju_conti_time <- PT ~ -1+Teju+ f(Ti, model = Teju.spde, group = Ti.group, 
+                                        control.group = list(model = 'ar1', hyper = h.spec)) 
+form_Teju_conti_time_no_sp <- PT ~ -1+Teju+ f(Ti,group = Ti.group, 
+                                              control.group = list(model = 'ar1', hyper = h.spec))
+
+form_Teju_group_no_sp <- PT ~ -1+Teju+ f(Tw, group = Tw.group, 
+                                         control.group = list(model = 'ar1',hyper = h.spec))
+
+
+# Model fitting of the spatial, temporal, time-grouped model, spatial only model, continuous time models
+
+# monthly groups, continuous space
+Teju_grouped <- inla(form_Teju_group, family="binomial",Ntrials = 1,  data = inla.stack.data(T_stack), 
+                     control.predictor = list(compute = TRUE, A = inla.stack.A(T_stack)), 
+                     control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                     control.fixed = list(expand.factor.strategy = 'inla'))
+
+# spatial model, not temporal
+Teju_Teju_space_on <- inla(form_Teju_space_on, family="binomial",Ntrials = 1, data = inla.stack.data(T_stack), 
+                           control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                           control.predictor = list(compute = TRUE,
+                                                    A = inla.stack.A(T_stack)), 
+                           control.fixed = list(expand.factor.strategy = 'inla'))
+# continous space time
+Teju_conti_time <- inla(form_Teju_conti_time, family="binomial",Ntrials = 1, data = inla.stack.data(T_stack_st), 
+                        control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                        control.predictor = list(compute = TRUE,
+                                                 A = inla.stack.A(T_stack_st)))
+# continuous ar1 time no spatial
+Teju_conti_time_no_sp <- inla(form_Teju_conti_time_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(T_stack_st), 
+                              control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                              control.predictor = list(compute = TRUE,
+                                                       A = inla.stack.A(T_stack_st)))
+
+# discrete time no spatial
+Teju_group_no_sp <- inla(form_Teju_group_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(T_stack), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(T_stack)))
+
+
+
+
+# list the models and visualize the WAIC to choose the best structure for Teju's models
+Spatial_Teju_List <- list(Teju_grouped, Teju_Teju_space_on, Teju_conti_time, Teju_conti_time_no_sp, Teju_group_no_sp, Teju_mod)
+INLADICFig(Spatial_Teju_List, ModelNames = c("SPDE-Discrete time", "SPDE (Spatial only)", "SPDE-continuous(ar1) time", "Temporal_Continuous(ar1)", "Temporal_Monthly(ar1)", "Spatial weights only"))
+
+
+# record DIC, WAIC and CPO (calculated as the mean log of model values)
+summary(Teju_group_no_sp)
+-mean(log(Teju_group_no_sp$cpo$cpo))
+summary(Teju_conti_time_no_sp)
+-mean(log(Teju_conti_time_no_sp$cpo$cpo))
+summary(Teju_conti_time)
+-mean(log(Teju_conti_time$cpo$cpo))
+summary(Teju_Teju_space_on)
+-mean(log(Teju_Teju_space_on$cpo$cpo))
+summary(Teju_grouped)
+-mean(log(Teju_grouped$cpo$cpo))
+summary(Teju_mod)
+-mean(log(Teju_mod$cpo$cpo))
+
+# formulas
+
+# competitor spatial encounter risk based on long calls
+Teju_full_form <- PT ~ -1+Teju+Association+Inul+Mindy+Juni+Kerry+LC_comp + f(Ti, model = Teju.spde, group = Ti.group, 
+                                                                                        control.group = list(model = 'ar1', hyper = h.spec))
+# run the INLA model
+Teju_full_mod <- inla(Teju_full_form, family="binomial",Ntrials = 1, data = inla.stack.data(T_stack_st), 
+                               control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                               control.predictor = list(compute = TRUE,
+                                                        A = inla.stack.A(T_stack_st)))
+str(Teju_)
+# model summary and CPO
+summary(Teju_full_mod)
+-mean(log(Teju_full_mod$cpo$cpo))
+
+
+# create a marginal plot for fixed effects
+library(brinla)
+library(INLAutils)
+library(ggplot2)
+autoplot(Teju_full_mod,which=1, priors = FALSE, CI = TRUE)
+
+
+# Models for Tomi
+Tomi_$PT<as.numeric(Tomi_$PT)
+
+# data preparaToion for spaToial models and space-Toime models(grouped/discrete only)
+
+# set k to number of months as risk is updated monthly
+k=length(unique(Tomi_$month))
+Tomi_$num_month = as.numeric(Tomi_$month)
+
+# cbind x and y coordinates
+Tomi_$X<-Tomi_$x/1000
+Tomi_$Y<-Tomi_$y/1000
+Tomi_Locations = cbind(Tomi_$X, Tomi_$Y) # cbind locaToions for each
+plot(Tomi_$x, Tomi_$y)
+# spaToial mesh
+plot(Tomi_Locations)
+Tomi_INLA_mesh<-INLA::inla.mesh.2d(Tomi_Locations , max.edge = c(0.5, 0.5))
+
+plot(Tomi_INLA_mesh)
+# SPDE
+Tomi.spde = INLA::inla.spde2.pcmatern(mesh =Tomi_INLA_mesh, prior.range = c(10, 0.5), prior.sigma = c(.5, .5)) # Making SPDE
+
+# number of months for grouping
+Tomi_NGroups <- length(unique(Tomi_$month))
+Tomi_NGroups
+# create an A matrix
+TomiA2 <- inla.spde.make.A(Tomi_INLA_mesh,
+                           loc = Tomi_Locations,
+                           group = as.numeric(as.factor(Tomi_$month)),# this must be a numeric value.
+                           n.group = Tomi_NGroups) 
+# weights
+w.Tomi2 <- inla.spde.make.index(
+  name    = 'Tow', 
+  n.spde  = Tomi.spde$n.spde,
+  n.group = Tomi_NGroups)  
+
+# create a stack stack
+To_stack <- INLA::inla.stack(
+  data = Tomi_ %>% dplyr::select(PT) %>%
+    as.list(),
+  A = list(TomiA2, 1),
+  effects = list(
+    c(
+      w.Tomi2,
+      list(intercept = rep(1, Tomi.spde$n.spde))
+    ),
+    Tomi_ %>%
+      dplyr::select(Tomi, Association , Juni , Inul , Kerry , Mindy , Henk_LC , Chili_LC ,Otto_LC, Niko_LC , Teju_LC , Wodan_LC , Henk , Chili ,Otto , Niko, Teju, Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+
+# prep for conToinuous Toime model
+#specify number of knots
+kt <- 2
+
+Timestamp<-as.numeric(as.POSIXct(Tomi_$timestamp))
+
+# create a Toime mesh
+Tomesh.t <- inla.mesh.1d(seq(0 + 0.5 / kt, 1 - 0.5 / kt, length = kt))
+
+# create a new mesh for conToinuous Toime
+Toiset <- inla.spde.make.index('Toi', n.spde = Tomi.spde$n.spde, 
+                               n.group = kt)
+
+
+# a new A matrix for conToinuous Toime space model
+Tomi_st_A <- inla.spde.make.A(mesh = Tomi_INLA_mesh, loc = Tomi_Locations, 
+                              group = Timestamp, group.mesh = Tomesh.t) 
+plot(Tomi_st_A)
+
+# create a separate stack for this model
+To_stack_st <- INLA::inla.stack(
+  data = Tomi_ %>% 
+    dplyr::select(PT) %>%
+    as.list(),
+  A = list(Tomi_st_A, 1),
+  effects = list(
+    c(
+      Toiset,
+      list(intercept = rep(1, Tomi.spde$n.spde))
+    ),
+    Tomi_ %>%
+      dplyr::select(Tomi, Association , Juni , Inul , Kerry , Mindy , Henk_LC , Chili_LC ,Otto_LC, Niko_LC , Teju_LC , Wodan_LC , Henk , Chili ,Otto , Niko, Teju, Wodan, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# set hyper prior prior
+h.spec <- list(rho = list(prior = 'pc.cor1', param = c(0, 0.9)))
+
+
+# space-Toime model for Tomi with Toime grouped by month with ar1 
+
+form_Tomi_group <- PT ~ -1+Tomi+ f(Tow, model = Tomi.spde, group = Tow.group, 
+                                   control.group = list(model = 'ar1',hyper = h.spec))
+
+form_Tomi_space_on <- PT ~ -1+Tomi+ f(Tow, model = Tomi.spde)
+form_Tomi_conti_time <- PT ~ -1+Tomi+ f(Toi, model = Tomi.spde, group = Toi.group, 
+                                        control.group = list(model = 'ar1', hyper = h.spec)) 
+form_Tomi_conti_time_no_sp <- PT ~ -1+Tomi+ f(Toi,group = Toi.group, 
+                                              control.group = list(model = 'ar1', hyper = h.spec))
+
+form_Tomi_group_no_sp <- PT ~ -1+Tomi+ f(Tow, group = Tow.group, 
+                                         control.group = list(model = 'ar1',hyper = h.spec))
+
+
+# Model fitToing of the spaToial, temporal, Toime-grouped model, spaToial only model, conToinuous Toime models
+
+# monthly groups, continuous space
+Tomi_grouped <- inla(form_Tomi_group, family="binomial",Ntrials = 1,  data = inla.stack.data(To_stack), 
+                     control.predictor = list(compute = TRUE, A = inla.stack.A(To_stack)), 
+                     control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                     control.fixed = list(expand.factor.strategy = 'inla'))
+
+# spatial model, not temporal
+Tomi_Tomi_space_on <- inla(form_Tomi_space_on, family="binomial",Ntrials = 1, data = inla.stack.data(To_stack), 
+                           control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                           control.predictor = list(compute = TRUE,
+                                                    A = inla.stack.A(To_stack)), 
+                           control.fixed = list(expand.factor.strategy = 'inla'))
+# continous space time
+Tomi_conti_Time <- inla(form_Tomi_conti_time, family="binomial",Ntrials = 1, data = inla.stack.data(To_stack_st), 
+                        control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                        control.predictor = list(compute = TRUE,
+                                                 A = inla.stack.A(To_stack_st)))
+# continuous ar1 time no spatial
+Tomi_conti_Time_no_sp <- inla(form_Tomi_conti_time_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(To_stack_st), 
+                              control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                              control.predictor = list(compute = TRUE,
+                                                       A = inla.stack.A(To_stack_st)))
+
+# discrete Time no spaTial
+Tomi_group_no_sp <- inla(form_Tomi_group_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(To_stack), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(To_stack)))
+
+
+
+
+# list the models and visualize the WAIC to choose the best structure for Tomi's models
+Spatial_Tomi_List <- list(Tomi_grouped, Tomi_Tomi_space_on, Tomi_conti_Time, Tomi_conti_Time_no_sp, Tomi_group_no_sp, Tomi_mod)
+INLADICFig(Spatial_Tomi_List, ModelNames = c("SPDE-Discrete Time", "SPDE (Spatial only)", "SPDE-continuous(ar1) Time", "Temporal_Continuous(ar1)", "Temporal_monthly(ar1)", "Spatial weights only"))
+
+# record DIC, WAIC and CPO (calculated as the mean log of model values)
+summary(Tomi_group_no_sp)
+-mean(log(Tomi_group_no_sp$cpo$cpo))
+summary(Tomi_conti_Time_no_sp)
+-mean(log(Tomi_conti_Time_no_sp$cpo$cpo))
+summary(Tomi_conti_Time)
+-mean(log(Tomi_conti_Time$cpo$cpo))
+summary(Tomi_Tomi_space_on)
+-mean(log(Tomi_Tomi_space_on$cpo$cpo))
+summary(Tomi_grouped)
+-mean(log(Tomi_grouped$cpo$cpo))
+summary(Tomi_mod)
+-mean(log(Tomi_mod$cpo$cpo))
+
+# Tomi no spatial structure, discrete time
+
+
+# Tomi full model
+View(Tomi_)
+full_mod_Tomi <- PT ~ -1 + Tomi+Association+Juni + Inul + Kerry + Mindy +LC_comp+ f(Tow, group = Tow.group,control.group = list(model = 'ar1', hyper = h.spec)) 
+
+
+# run the INLA model
+full_mod_Tomi <- inla(full_mod_Tomi, family="binomial",Ntrials = 1, data = inla.stack.data(To_stack), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(To_stack)))
+
+
+summary(full_mod_Tomi)
+# plot fixed effects
+autoplot(full_mod_Tomi,which=1, priors = FALSE, CI = TRUE)
+
+
+# Wodan Analysis
+Wodan_$PT<-as.numeric(Wodan_$PT)
+# set k to number of months as risk is updated monthly
+k=length(unique(Wodan_$month))
+Wodan_$num_month = as.numeric(Wodan_$month)
+
+# cbind x and y coordinates
+Wodan_$X<-Wodan_$x/1000
+Wodan_$Y<-Wodan_$y/1000
+Wodan_Locations = cbind(Wodan_$X, Wodan_$Y) # cbind locations for each
+
+# spatial mesh
+Wodan_INLA_mesh<-INLA::inla.mesh.2d(Wodan_Locations, max.edge = c(0.5, 0.5)) # mesh
+plot(Wodan_INLA_mesh)
+# SPDE
+Wodan.spde = INLA::inla.spde2.pcmatern(mesh =Wodan_INLA_mesh, prior.range = c(10, 0.5), prior.sigma = c(.5, .5)) # Making SPDE
+
+
+# number of months for grouping
+NGroups <- length(unique(Wodan_$month))
+
+# create an A matrix
+WodanA2 <- inla.spde.make.A(Wodan_INLA_mesh, # Leave
+                            loc = Wodan_Locations, # Leave
+                            group = as.numeric(as.factor(Wodan_$month)),# this must be a numeric value counting from 1. If the groups variable is a factor, this will happen by default.
+                            n.group = NGroups) 
+# weights
+w.Wodan2 <- inla.spde.make.index(
+  name    = 'Ww', 
+  n.spde  = Wodan.spde$n.spde,
+  n.group = NGroups)  
+
+# create a stack stack
+W_stack <- inla.stack(
+  data = Wodan_ %>%
+    select(PT) %>%
+    as.list(),
+  A = list(WodanA2, 1),
+  effects = list(
+    c(
+      w.Wodan2,
+      list(intercept = rep(1, Wodan.spde$n.spde))
+    ),
+    Wodan_ %>%
+      select(Wodan , Association , Juni , Inul , Kerry , Mindy , Henk_LC , Niko_LC ,Otto_LC, Teju_LC , Tomi_LC , Chili_LC , Henk , Niko ,Otto , Teju , Tomi , Chili, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+
+# prep for continuous time model
+#specify number of knots
+kt <- 2
+
+timestamp<-as.numeric(Wodan_$timestamp)
+
+# create a time mesh
+W.mesh.t <- inla.mesh.1d(seq(0 + 0.5 / kt, 1 - 0.5 / kt, length = kt))
+
+# create a new mesh for continuous time
+Wset <- inla.spde.make.index('Wi', n.spde = Wodan.spde$n.spde, 
+                             n.group = kt)
+
+
+# a new A matrix for continuous time space model
+Wodan_st_A <- inla.spde.make.A(mesh = Wodan_INLA_mesh, loc = Wodan_Locations, 
+                               group = timestamp, group.mesh = W.mesh.t) 
+plot(Wodan_st_A)
+
+# create a separate stack for this model
+W_stack_st <- inla.stack(
+  data = Wodan_ %>%
+    select(PT) %>%
+    as.list(),
+  A = list(Wodan_st_A, 1),
+  effects = list(
+    c(
+      Wset,
+      list(intercept = rep(1, Wodan.spde$n.spde))
+    ),
+    Wodan_ %>%
+      select(Wodan , Association , Juni , Inul , Kerry , Mindy, Henk_LC , Niko_LC ,Otto_LC, Teju_LC , Tomi_LC , Chili_LC , Henk , Niko ,Otto , Teju , Tomi , Chili, LC_comp) %>%
+      as.list()
+  )
+)
+
+
+# set hyper prior prior
+h.spec <- list(rho = list(prior = 'pc.cor1', param = c(0, 0.9)))
+
+
+# space-time model for Wodan with time grouped by month with ar1 
+
+
+form_Wodan_group <- PT ~ -1+Wodan+ f(Ww, model = Wodan.spde, group = Ww.group, 
+                                control.group = list(model = 'ar1',hyper = h.spec))
+form_Wodan_space_on <- PT ~ -1+Wodan+ f(Ww, model = Wodan.spde)
+form_Wodan_conti_time <- PT ~ -1+Wodan+ f(Wi, model = Wodan.spde, group = Wi.group, 
+                                     control.group = list(model = 'ar1', hyper = h.spec)) 
+form_Wodan_conti_time_no_sp <- PT ~ -1+Wodan+ f(Wi,group = Wi.group, 
+                                           control.group = list(model = 'ar1', hyper = h.spec))
+form_Wodan_group_no_sp <- PT ~ -1+Wodan+ f(Ww,group = Ww.group, 
+                                      control.group = list(model = 'ar1', hyper = h.spec))
+
+
+# Model fitting of the spatial, temporal, time-grouped model, spatial only model, continuous time models
+
+# monthly groups, continuous space
+Wodan_grouped <- inla(form_Wodan_group, family="binomial",Ntrials = 1,  data = inla.stack.data(W_stack), 
+                      control.predictor = list(compute = TRUE, A = inla.stack.A(W_stack)), 
+                      control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                      control.fixed = list(expand.factor.strategy = 'inla'))
+
+# spatial model, not temporal
+Wodan_Wodan_space_on <- inla(form_Wodan_space_on, family="binomial",Ntrials = 1, data = inla.stack.data(W_stack), 
+                             control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                             control.predictor = list(compute = TRUE,
+                                                      A = inla.stack.A(W_stack)), 
+                             control.fixed = list(expand.factor.strategy = 'inla'))
+# continous space time
+Wodan_conti_time <- inla(form_Wodan_conti_time, family="binomial",Ntrials = 1, data = inla.stack.data(W_stack_st), 
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                         control.predictor = list(compute = TRUE,
+                                                  A = inla.stack.A(W_stack_st)))
+# continuous ar1 time no spatial
+Wodan_conti_time_no_sp <- inla(form_Wodan_conti_time_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(W_stack_st), 
+                               control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                               control.predictor = list(compute = TRUE,
+                                                        A = inla.stack.A(W_stack_st)))
+
+# discrete time no spatial
+Wodan_group_no_sp <- inla(form_Wodan_group_no_sp, family="binomial",Ntrials = 1, data = inla.stack.data(W_stack), 
+                          control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),
+                          control.predictor = list(compute = TRUE,
+                                                   A = inla.stack.A(W_stack)))
+
+
+# list the models and visualize the WAIC to choose the best structure for Wodan's models
+Spatial_Wodan_List <- list(Wodan_grouped, Wodan_Wodan_space_on, Wodan_conti_time, Wodan_conti_time_no_sp, Wodan_group_no_sp, Wodan_mod)
+INLADICFig(Spatial_Wodan_List, ModelNames = c("SPDE-Discrete time", "SPDE (Spatial only)", "SPDE-continuous(ar1) time", "Temporal_Continuous(ar1)", "Temporal_Monthly(ar1)", "Spatial weights only"))
+
+summary(Wodan_group_no_sp)
+-mean(log(Wodan_group_no_sp$cpo$cpo))
+summary(Wodan_conti_time_no_sp)
+-mean(log(Wodan_conti_time_no_sp$cpo$cpo))
+summary(Wodan_conti_time)
+-mean(log(Wodan_conti_time$cpo$cpo))
+summary(Wodan_Wodan_space_on)
+-mean(log(Wodan_Wodan_space_on$cpo$cpo))
+summary(Wodan_grouped)
+-mean(log(Wodan_grouped$cpo$cpo))
+summary(Wodan_conti_time_spw)
+summary(Wodan_group_spw)
+
+-mean(log(Wodan_mod$cpo$cpo))
+
+#spatial weights only model
+
+Wodan_mod <- inla(Wodan_full_form, Wodan_$weights, family = "binomial", data = Wodan_, control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE))
+summary(Wodan_mod)
+
+plot(Wodan_mod)
+
+
+# create a marginal plot for fixed effects
+library(brinla)
+autoplot(Wodan_mod,which=1, priors = FALSE, CI = TRUE)
+library(ggplot2)
+
+# plots for familiarity
+
+# subset each dataframe by long calls only, then make density charts
+
+Chili_figure<-Chili_[Chili_$PT == "1", ]
+Henk_figure<-Henk_[Henk_$PT == "1", ]
+Niko_figure<-Niko_[Niko_$PT == "1", ]
+Teju_figure<-Teju_[Teju_$PT == "1", ]
+Tomi_figure<-Tomi_[Tomi_$PT == "1", ]
+Wodan_figure<-Wodan_[Wodan_$PT == "1", ]
+
+
+Wodan_figure$LongCall<-as.factor(Wodan_figure$PT)
+Tomi_figure$LongCall<-as.factor(Tomi_figure$PT)
+Teju_figure$LongCall<-as.factor(Teju_figure$PT)
+Niko_figure$LongCall<-as.factor(Niko_figure$PT)
+Henk_figure$LongCall<-as.factor(Henk_figure$PT)
+Chili_figure$LongCall<-as.factor(Chili_figure$PT)
+
+
+
+Chili_famil<-ggplot((Chili_figure) + geom_density(aes(x = "Chili", y=..scaled..),
+                       color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Chili"))
+
+Chili_famil<-ggdensity(Chili_figure, x = "Chili", y="..scaled..", add = "mean", rug = TRUE,
+                      color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Chili")
+Henk_famil<-ggdensity(Henk_figure, x = "Henk",y="..scaled..",add = "mean", rug = TRUE,
+                      color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Henk")
+Niko_famil<-ggdensity(Niko_figure, x = "Niko",y="..scaled..", add = "mean", rug = TRUE,
+                      color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Niko")
+Teju_famil<-ggdensity(Teju_figure, x = "Teju",y="..scaled..",add = "mean", rug = TRUE,
+                      color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Teju")
+Tomi_famil<-ggdensity(Tomi_figure, x = "Tomi",y="..scaled..",add = "mean", rug = TRUE,
+                       color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Tomi")
+Wodan_famil<-ggdensity(Wodan_figure, x = "Wodan",y="..scaled..",add = "mean", rug = TRUE,
+          color = "LongCall", fill = "LongCall")+  xlab("Familiarity - Wodan")
+
+library(ggpubr)
+library(ggplot2)
+# look how to override axis labels
+famil_figure <- ggarrange(Chili_famil, Henk_famil, Niko_famil, Teju_famil, Tomi_famil, Wodan_famil,
+                              ncol = 2, nrow = 3, font.label = list(size = 10))
+
+famil_figure
+
+Wodan_$PT<-as.numeric(Wodan_$PT)
+Wodan_fam<-ggplot(Wodan_, aes(x=Wodan, y=PT))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("Familiarity")+
+  ylab("Spontaneous Long Call (0/1)")+
+  theme_bw()
+Chili_fam
+Chili_$PT<-as.numeric(Chili_$PT)
+Chili_fam<-ggplot(Chili_, aes(x=Chili, y=PT))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("Familiarity")+
+  ylab("Spontaneous Long Call (0/1)")+
+  theme_bw()
+
+Tomi_$PT<-as.numeric(Tomi_$PT)
+Tomi_fam<-ggplot(Tomi_, aes(x=Tomi, y=PT))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("Familiarity")+
+  ylab("Spontaneous Long Call (0/1)")+
+  theme_bw()
+
+Teju_$PT<-as.numeric(Teju_$PT)
+Teju_fam<-ggplot(Teju_, aes(x=Teju, y=PT))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("Familiarity")+
+  ylab("Spontaneous Long Call (0/1)")+
+  theme_bw()
+
+Niko_$PT<-as.numeric(Niko_$PT)
+Niko_fam<-ggplot(Niko_, aes(x=Niko, y=PT))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("Familiarity")+
+  ylab("Spontaneous Long Call (0/1)")+
+  theme_bw()
+
+Henk_$PT<-as.numeric(Henk_$PT)
+Henk_fam<-ggplot(Henk_, aes(x=Henk, y=PT))+geom_point(Size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("Familiarity")+
+  ylab("Spontaneous Long Call (0/1)")+
+  theme_bw()
+
+library(ggpubr)
+# look how to override axis labels
+familiary_figure <- ggarrange(Chili_fam, Henk_fam, Niko_fam, Teju_fam, Tomi_fam, Wodan_fam,
+                    labels = c("Chili", "Henk", "Niko", "Teju", "Tomi", "Wodan"),
+                    ncol = 2, nrow = 3, vjust= 0.4, font.label = list(size = 10))
+
+familiary_figure
