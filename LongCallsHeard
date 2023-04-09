@@ -1,0 +1,746 @@
+library(readr)
+setwd("C:/Users/lrlab/OneDrive/Desktop/LC_Project")
+LC_PAM_response<- read_csv("C:/Users/lrlab/OneDrive/Desktop/LC_Project/LC_PAMsystem_forediting.csv")
+Tuanan_AdultOrang <- read_csv("Tuanan_AdultOrang.csv")
+LC_heard<- read_csv("C:/Users/lrlab/OneDrive/Desktop/LC_Project/LongCalls_Heard_masterfile_2003_2018.csv")
+View(LC_heard)
+str(LC_PAM_response)
+# all these observations together could go into spatial model of where they respond
+# Follow data can be used for whether the distance and whether individuals are in affects
+# using PAM system, look at the latency to respond using survival model
+# using long calls from PAM system match to when individuals were followed from long call heard
+# to get distance and to get individual who called
+
+# get dates into matching format so coordinates can be matched
+PTS <- as.data.frame(Tuanan_AdultOrang)
+LCH <- as.data.frame(LC_heard)
+str(PTS)
+PTS$datetime<-as.POSIXct(x = as.character(PTS$date), format = "%m/%d/%Y %H:%M:%S")
+
+LCH$datetime<-as.POSIXct(x = as.character(LCH$Timestamp), format = "%m/%d/%Y %H:%M:%S")
+
+
+
+#correct names that have typos
+head(LCH)
+LCH$ID<-LCH$`Name Focal`
+unique(LCH$ID)
+LCH$ID <- gsub("BOBO", "Bobo", LCH$ID)
+LCH$ID <- gsub("CHAZ", "Chaz", LCH$ID)
+PTS$ID<-PTS$id
+unique(PTS$ID)
+
+# join datasets so that long call heard data has a nearest location point from that follow period
+library(data.table)
+
+
+setDT(LCH)[, join_date := datetime]
+setDT(PTS)[, join_date := datetime]
+
+setkey(LCH, ID, join_date)
+setkey(PTS, ID, join_date)
+
+RES<-PTS[LCH,roll='nearest',mult="first", allow.cartesian=F]
+
+str(LCH_GPS_added)
+View(RES)
+
+
+# there are many missing points, but this is correct because many
+#individuals are not represented in the long calling data
+#write.csv
+write.csv(RES,"LCH_GPS_added.csv")
+LCH_GPS_added<-as.data.frame(RES)
+LCH_GPS_added<-read.csv(file="LCH_GPS_added.csv")
+
+# once data has GPS points added, then match data in 2012
+#from PAM system to data from LCH from the same timestamp
+
+LCH_GPS_added$dist<-LCH_GPS_added$`Estimated Distance`
+LCH_GPS_added$ASC<-LCH_GPS_added$`Class Focal`
+LCH_GPS_added$id<-LCH_GPS_added$`Name Focal`
+str(LCH_GPS_added)
+table(is.na(LCH_GPS_added$lat))
+View(LCH_GPS_added)
+#designate observation data as "follow data" 
+# filer to the attributes we're interested in (time, location)
+LCH_folw<-LCH_GPS_added[,c("long", "lat", "id", "Year","Month", "Day","Time...8", "ASC", "dist", "LCG", "Follow Nr", "Timestamp", "avoid", "approach", "social.interaction",  "ksq.display", "ignore")]
+
+# create a new column name for follow number
+LCH_folw$F.Num<-LCH_folw_data$`Follow Nr`
+as.data.frame(LCH_folw)
+str(LCH_folw)
+
+# this analysis is focused on long call responses - so remove unflanged males
+unique(LCH_folw$ASC)
+LCH_folw<-LCH_folw[!(LCH_folw$ASC=="ufm"),]
+
+# Also NA from identity
+LCH_folw<-LCH_folw[!is.na(LCH_folw$id),]
+
+View(LCH_folw)
+
+# set timestamp from PAM system
+str(LC_PAM)
+LC_PAM_response$date<-with(LC_PAM_response,paste(Year,Month...5, Day, sep="-"),"%Y-%m-%d")
+LC_PAM_response$Timestamp<-with(LC_PAM_response,paste(date,caller_Time, sep = " "),"%Y-%m-%d %H:%M:%S")
+
+# transform observed data to UTM so that data from rasters can later be extracted as covariates
+# transform to geographic coords to fit ctmm/movebank format
+library(sp)
+# Also NA from identity
+LCH_folw<-LCH_folw[!is.na(LCH_folw$lat),] # coordinates cannot contain missing values
+coordinates(LCH_folw) <- c("long", "lat")
+proj4string(LCH_folw) <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+LCH_folw_UTM <- spTransform(LCH_folw, CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south"))
+LCH_folw_UTM<-as.data.frame(LCH_folw_UTM)
+str(LCH_folw_UTM)
+LCH_folw_UTM$x<-LCH_folw_UTM$long # match x and y so that PAM data can be joined to this observed dataset
+LCH_folw_UTM$y<-LCH_folw_UTM$lat
+View(LCH_folw_UTM)
+
+# filter to a few common variables before joining with the PAM system dataset
+LCH_folw_UTM$Time<-LCH_folw_UTM$Time...8
+LCH_folw_to_join<-LCH_folw_UTM[,c("id", "x", "y", "Year","Month", "Day","Time", "Timestamp", "dist", "LCG" )]
+
+# filter these datasets so they have the same attributes
+LC_PAM_filter<-LC_PAM_response[,c("response_Vocalization", "response_Pos.x", "response_Pos.y", "Year","Month...5", "Day","caller_Time", "response_ID.def", "geo_dist", "Timestamp" )]
+str(LC_PAM_filter)
+
+# change Response vocalization to 0 and 1 for long call
+unique(LC_PAM_filter$response_Vocalization)
+
+LC_PAM_filter$response_Vocalization[LC_PAM_filter$response_Vocalization == "sighs"]<-0
+LC_PAM_filter$response_Vocalization[LC_PAM_filter$response_Vocalization == "fastLC_LC"]<-1
+LC_PAM_filter$response_Vocalization[LC_PAM_filter$response_Vocalization == "fastLC"]<-1
+LC_PAM_filter$response_Vocalization[LC_PAM_filter$response_Vocalization == "LC"]<-1
+LC_PAM_filter$response_Vocalization[is.na(LC_PAM_filter$response_Vocalization)] <- 0
+LC_PAM_filter$LCG<-as.numeric(LC_PAM_filter$response_Vocalization)
+
+# change name of focal to "id"
+LC_PAM_filter$id<-LC_PAM_filter$response_ID.def
+# and "geo_dist" to "dist"
+LC_PAM_filter$dist<-LC_PAM_filter$geo_dist
+LC_PAM_filter$x<-LC_PAM_filter$response_Pos.x
+LC_PAM_filter$y<-LC_PAM_filter$response_Pos.y
+LC_PAM_filter$Month<-LC_PAM_filter$Month...5
+LC_PAM_filter$Time<-LC_PAM_filter$caller_Time
+str(LC_PAM_filter)
+LC_PAM_to_join<-LC_PAM_filter[,c("id", "x", "y", "Year","Month", "Day","Time", "Timestamp", "dist", "LCG" )]
+
+# join the two dataframes by rbind
+LongCall_H<-rbind(LC_PAM_to_join, LCH_folw_to_join)
+str(LongCall_H)
+
+# correct typos in id
+unique(LongCall_H$id)
+library(dplyr)
+LongCall_H<-LongCall_H[LongCall_H$id %in% c("Helium", "Henk" ,  "Preman", "Katmandun" , "MAX" ,"Max" ,"Chili" ,"Luca","Dayak","Teju","Flunmu", "Wodan", "Niko", "Otto", "Tomi", "xyzMax", "xyzWodan", "xyPreman", "xyHenk","xyzNiko", "xyzHelium", "xyzPreman", "xyzDayak", "xyzTomi", "xyzHenk", "Kay", "Apoi" ,"Fatih", "Fayesh", "Kentung", "Luca", "Sugus", "Bobo", "BOBO", "Dolay", "Quasimodo", "Whisky", "Zeke", "Rambo", "Rex", "Sugus", "Guapo", "Gismo", "Paul", "Sultan"), ]
+LongCall_H$id <- gsub("MAX", "Max", LongCall_H$id)
+LongCall_H$id <- gsub("xyzWodan", "Wodan", LongCall_H$id)
+LongCall_H$id <- gsub("xyzWodan", "Wodan", LongCall_H$id)
+LongCall_H$id <- gsub("xyzDayak", "Dayak", LongCall_H$id)
+LongCall_H$id <- gsub("xyzPreman", "Preman", LongCall_H$id)
+LongCall_H$id <- gsub("xyzHenk", "Henk", LongCall_H$id)
+LongCall_H$id <- gsub("xyzMax", "Max", LongCall_H$id)
+LongCall_H$id <- gsub("xyzNiko", "Niko", LongCall_H$id)
+LongCall_H$id <- gsub("xyzHelium", "Helium", LongCall_H$id)
+LongCall_H$id <- gsub("xyHenk", "Henk", LongCall_H$id)
+LongCall_H$id <- gsub("xyzTomi", "Tomi", LongCall_H$id)
+LongCall_H$id <- gsub("BOBO", "Bobo", LongCall_H$id)
+LongCall_H$id <- gsub("xyPreman", "Preman", LongCall_H$id)
+LongCall_H$id <- gsub("Kay", "Katmandun", LongCall_H$id) # this was found to be the same individual
+
+# Edit distance column so that characters and ranges are a single value - take the mean of the two if two values are given
+# distances were estimated
+unique(LongCall_H$dist)
+
+# If there is a distance range, take the average
+LongCall_H$dist <- gsub("100-200", "200", LongCall_H$dist)
+LongCall_H$dist <- gsub("500-600", "550", LongCall_H$dist)
+LongCall_H$dist <- gsub("400?", "400", LongCall_H$dist)
+LongCall_H$dist <- gsub("900-950", "925", LongCall_H$dist)
+LongCall_H$dist <- gsub("100-150", "125", LongCall_H$dist)
+LongCall_H$dist <- gsub("150-200", "175", LongCall_H$dist)
+LongCall_H$dist <- gsub("200-300", "250", LongCall_H$dist)
+LongCall_H$dist <- gsub("200-400", "300", LongCall_H$dist)
+LongCall_H$dist <- gsub("400-600", "500", LongCall_H$dist)
+LongCall_H$dist <- gsub("300-400", "350", LongCall_H$dist)
+LongCall_H$dist <- gsub("750-800", "775", LongCall_H$dist)
+LongCall_H$dist <- gsub("750-1000", "875", LongCall_H$dist)
+LongCall_H$dist <- gsub("900-1000", "950", LongCall_H$dist)
+LongCall_H$dist <- gsub("80-100", "90", LongCall_H$dist)
+LongCall_H$dist <- gsub("300-350", "325", LongCall_H$dist)
+LongCall_H$dist <- gsub("250-300", "275", LongCall_H$dist)
+LongCall_H$dist <- gsub("800-850", "875", LongCall_H$dist)
+LongCall_H$dist <- gsub("800-900", "850", LongCall_H$dist)
+LongCall_H$dist <- gsub("600-650", "675", LongCall_H$dist)
+LongCall_H$dist <- gsub("400-450", "425", LongCall_H$dist)
+LongCall_H$dist <- gsub("800-850", "825", LongCall_H$dist)
+LongCall_H$dist <- gsub("300-400", "350", LongCall_H$dist)
+LongCall_H$dist <- gsub("250-300", "275", LongCall_H$dist)
+LongCall_H$dist <- gsub("450-500", "475", LongCall_H$dist)
+LongCall_H$dist <- gsub("350-400", "375", LongCall_H$dist)
+LongCall_H$dist <- gsub("700-750", "725", LongCall_H$dist)
+LongCall_H$dist <- gsub("700-800", "750", LongCall_H$dist)
+LongCall_H$dist <- gsub("400-500", "450", LongCall_H$dist)
+LongCall_H$dist <- gsub("75-100", "87.5", LongCall_H$dist)
+LongCall_H$dist <- gsub("50-100", "75", LongCall_H$dist)
+LongCall_H$dist <- gsub("70-100", "85", LongCall_H$dist)
+LongCall_H$dist <- gsub("600-700", "650", LongCall_H$dist)
+LongCall_H$dist <- gsub("200-250", "225", LongCall_H$dist)
+LongCall_H$dist <- gsub("500-550", "525", LongCall_H$dist)
+LongCall_H$dist <- gsub("500-550", "525", LongCall_H$dist)
+LongCall_H$dist <- gsub("<100", "100", LongCall_H$dist)
+LongCall_H$dist <- gsub("<50", "50", LongCall_H$dist)
+LongCall_H$dist <- gsub("100?", "100", LongCall_H$dist) # I consider this ambiguous "?" but not others because calls are easier to decifer from closeby
+
+# create a new dataframe
+LCH_df<-LongCall_H[!(LongCall_H$dist=="?" |LongCall_H$dist=="300?" |LongCall_H$dist=="500+" | LongCall_H$dist=="near"|LongCall_H$dist==">500"|LongCall_H$dist=="> 800"|LongCall_H$dist=="> 700"|LongCall_H$dist=="500?"|LongCall_H$dist=="sedang"|LongCall_H$dist=="far"|LongCall_H$dist=="closer"|LongCall_H$dist=="u"|LongCall_H$dist=="> 600"|LongCall_H$dist=="> 500"|LongCall_H$dist==">900"|LongCall_H$dist==">1000"|LongCall_H$dist=="far?"|LongCall_H$dist=="700?"|LongCall_H$dist==">800"|LongCall_H$dist=="400?"|LongCall_H$dist=="600?"|LongCall_H$dist=="> 600"|LongCall_H$dist=="700?"),]
+View(LCH_df)
+View(LCH_df %>% count(id, Year))
+
+# want to have a minimum of 6 if not much more individuals per year, and want a minimum of 10 replicates
+# this is based on how often they were sampled hearing long calls, not how often they responded
+# so should include males who are temporarily dominant, and those that are not
+# includes
+# Chili 2012
+# Dayak 2012-2016
+# Bobo 2015
+#Fayesh 2012
+# Flunmu 2012, 2013
+#Helium 2012-2015, 2017
+# Henk 2012-2015
+# Katmandun 2012, 2014
+# Kentung 2006-2008
+# Niko 2012-2016
+# otto 2012, 2014-2016
+# preman 2012, 2017
+# Teju 2012 - 2013, 2015-2016
+# Tomi 2012, 2014, 2015, 2016
+# wodan 2012-2018
+# 2012 14 individuals
+# 2013 6 individuals
+# 2014 7 individuals
+# 2015 9 individuals
+# 2016 6 individuals
+# 2017 2 individuals
+# 2018 1 individual
+# 2016 through 2016 is then an appropriate timeframe
+
+LCH_df<-LCH_df[LCH_df$Year=="2012"|LCH_df$Year=="2013"|LCH_df$Year=="2014"|LCH_df$Year=="2015"|LCH_df$Year=="2016",]
+LCH_df<-LCH_df[LCH_df$id=="Chili"|LCH_df$id=="Helium"|LCH_df$id=="Henk"|LCH_df$id=="Katmandun"|LCH_df$id=="Niko"|LCH_df$id=="Otto"|LCH_df$id=="Preman"|LCH_df$id=="Teju"|LCH_df$id=="Tomi"|LCH_df$id=="Wodan"|LCH_df$id=="Dayak"|LCH_df$id=="Fayesh"|LCH_df$id=="Flunmu",]
+View(LCH_df)
+
+write.csv(LCH_df, file="LCH_no_assoc.csv")
+LCH_df<-read.csv(file="LCH_no_assoc.csv")
+str(LCH_df)
+
+#---------------------------------------------------------------------------------
+
+# Add association data to the dataframe
+library(data.table)
+library(dplyr)
+library(readr)
+
+# load in table that includes follow number, identity, date and information on associations
+# I found no associations so this script is unnecessary
+
+#Activity_table2 <- read_csv("Activity table2.csv")
+#str(Activity_table2)
+#Activity_table2$F.Num<-Activity_table2$`Follow Table_Follow Number`
+
+# format time so that timestamps can be matched up for a rolling join
+#Activity_table2$Date<-as.POSIXct(x = as.character(Activity_table2$Date), format = "%m/%d/%Y")
+#Activity_table2$NewDate<-format(Activity_table2$Date, "%Y-%m-%d")
+#Activity_table2$Timestamp<-with(Activity_table2,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+#Activity_table2$Timestamp1<-as.POSIXct(x = as.character(Activity_table2$Timestamp))
+
+#LCH_folw_data$NewDate<-with(LCH_folw_data,paste(Year,Month, Day,sep="-"),"%Y-%m-%d")
+#LCH_folw_data$NewDate<-as.POSIXct(x = as.character(LCH_folw_data$NewDate))
+#LCH_folw_data$Timestamp<-with(LCH_folw_data,paste(NewDate,Time...8,sep=" "),"%Y-%m-%d %H:%M:%S")
+#LCH_folw_data$Timestamp1<-as.POSIXct(x = as.character(LCH_folw_data$Timestamp))
+
+#Activity_table2$DT<-as.numeric(Activity_table2$Timestamp1)
+#LCH_folw_data$DT<-as.numeric(LCH_folw_data$Timestamp1)
+
+# set data.table key
+#setDT(Activity_table2)[,join_time:=DT]
+#setDT(LCH_folw_data)[, join_time:=DT]
+
+#setkey(LCH_folw_data, F.Num, DT)
+#setkey(Activity_table2, F.Num, DT)
+
+#one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+#LCH_wActiv<-Activity_table2[LCH_folw_data, roll = one_hour]
+
+#View(LCH_wActiv)
+
+# do the same with associations recorded from 2010 onwards
+Activity_Table2010 <- read_csv("Activity_Table2010.csv")
+Activity_Table2010$F.Num<-Activity_Table2010$`Follow Nr`
+str(Activity_Table2010)
+# format time so that timestamps can be matched up for a rolling join
+Activity_Table2010$Date<-as.POSIXct(x = as.character(Activity_Table2010$Date), format = "%m/%d/%Y")
+Activity_Table2010$NewDate<-format(Activity_Table2010$Date, "%Y-%m-%d")
+Activity_Table2010$Timestamp<-with(Activity_Table2010,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Activity_Table2010$Timestamp1<-as.POSIXct(x = as.character(Activity_Table2010$Timestamp))
+
+
+LCH_df$Timestamp<-as.POSIXct(x = as.character(LCH_df$Timestamp))
+str(LCH_df$Timestamp)
+# select rows if one of the focal animals occurs in any of the partner or focal columns
+Activity_Table2010 %>% filter_all(any_vars(. %in% c('Tomi', 'Teju', 'Wodan', 'Chili', 'Katmandun', 'Kay', 'Flunmu', 'Fayesh', 'Henk', 'Helium', 'Dayak', 'Niko', 'Otto', 'Preman')))
+write.csv(Activity_Table2010, "Selected_act_table.csv")
+
+str(Activity_Table2010)
+# create a column of the identity of just the potentially long calling male
+Activity_Table2010$ID <- ifelse(Activity_Table2010$`Party member 2` %in% c('Tomi', 'Teju', 'Wodan', 'Chili', 'Katmandun', 'Kay', 'Flunmu', 'Fayesh', 'Henk', 'Helium', 'Dayak', 'Niko', 'Otto', 'Preman'), Activity_Table2010$`Party member 2`,
+                ifelse(Activity_Table2010$`Party member 3` %in% c('Tomi', 'Teju', 'Wodan', 'Chili', 'Katmandun', 'Kay', 'Flunmu', 'Fayesh', 'Henk', 'Helium', 'Dayak', 'Niko', 'Otto', 'Preman'), Activity_Table2010$`Party member 3`,
+                       ifelse(Activity_Table2010$`Name Focal` %in% c('Tomi', 'Teju', 'Wodan', 'Chili', 'Katmandun', 'Kay', 'Flunmu', 'Fayesh', 'Henk', 'Helium', 'Dayak', 'Niko', 'Otto', 'Preman'), Activity_Table2010$`Name Focal`,
+                              ifelse(Activity_Table2010$`Party member 4` %in% c('Tomi', 'Teju', 'Wodan', 'Chili', 'Katmandun', 'Kay', 'Flunmu', 'Fayesh', 'Henk', 'Helium', 'Dayak', 'Niko', 'Otto', 'Preman'), Activity_Table2010$`Party member 4`,
+                                     ifelse(Activity_Table2010$`Party member 5` %in% c('Tomi', 'Teju', 'Wodan', 'Chili', 'Katmandun', 'Kay', 'Flunmu', 'Fayesh', 'Henk', 'Helium', 'Dayak', 'Niko', 'Otto', 'Preman'), Activity_Table2010$`Party member 5`, NA)))))
+
+Activity_Table2010_filtered <- Activity_Table2010[!is.na(Activity_Table2010$ID),]
+
+# filter to times when 'party size' is two or more, otherwise match for no partner will be 'NA'
+# this is because a nearest match within an hour may match a timepoint where there is no association even if one occurred in the same hour.
+
+Act_Table<- Activity_Table2010_filtered %>% 
+  filter(Activity_Table2010_filtered$`Party Size` >= 2)
+str(Act_Table$Timestamp1)
+
+# Create a new data frame to store the results
+df_results <- data.frame()
+
+# Loop through each row in LCH_df
+for (i in 1:nrow(LCH_df)) {
+  
+  # Create a subset of Act_Table that matches the ID and is within an hour of the Timestamp
+  subset_Act_Table <- subset(Act_Table, ID == LCH_df$id[i] & 
+                               abs(LCH_df$Timestamp[i] - Act_Table$Timestamp1) <= 3600)
+  
+  # If there is a match, add the row from Act_Table to the results data frame
+  if (nrow(subset_Act_Table) > 0) {
+    df_results <- rbind(df_results, subset_Act_Table[which.min(abs(LCH_df$Timestamp[i] - subset_Act_Table$Timestamp1)),])
+  }
+}
+
+# View the results
+View(df_results)
+
+
+# roll nearest because time was already filtered to be within an hour
+# left join the two data tables
+# convert data frames to data tables
+# numeric datetime for datatable rolling joins
+df_results$datetime<-as.numeric(as.POSIXct(df_results$Timestamp1))
+LCH_df$Datetime<-as.numeric(as.POSIXct(LCH_df$Timestamp))
+
+df_results <- as.data.table(df_results)
+LCH_df <- as.data.table(LCH_df)
+str(LCH_df)
+
+# roll join the two data tables
+one_hour<-3600
+roll_join <- df_results[LCH_df, on = .(ID = id, datetime = Datetime), roll = one_hour, mult = "first", nomatch=NA]
+
+View(roll_join)
+
+
+
+as.data.frame(roll_join)
+write.csv(roll_join, file="LCH_activity_added.csv")
+LC_active_join<-read.csv(file="LCH_activity_added.csv")
+# rename to something that represents long calls merged with activity data
+LC_active_join<-as.data.frame(roll_join)
+
+str(LC_active_join)
+
+# select out variables that will be useful
+LCH<-LC_active_join[,c("x", "y", "ID", "i.Year","i.Month", "i.Day","i.Time", "dist","LCG", "i.Timestamp", "Party Size","Party member 2","Party member 3", "Party member 4")]
+str(LCH)
+
+# If an association is occurring then set the row = 1, if not, then 0
+LCH$Association<-LCH$`Party Size`
+unique(LCH$'Party member 2')
+# Checked the data to find 'party number' including two individuals when only one was present per the database,
+# if partner and focal individual are the same, set to 0 for party size
+LCH$Assoc <- with(LCH, ifelse(ID==`Party member 2`, 0, LCH$Association))
+View(LCH)
+# Because we're interested in associations, change "party size =1" to 0
+LCH$Assoc[LCH$Assoc == 1 ] <- 0
+LCH$Assoc[LCH$Assoc == "NA" ] <- 0
+LCH$Assoc[LCH$Assoc >= 2 ] <- 1
+
+# divide up association data into age-sex classes
+# adf for adult female
+LCH$`Party member 2`[LCH$`Party member 2` == "Juni"|LCH$`Party member 2` == "Kerry"|LCH$`Party member 2` == "Pinky"|LCH$`Party member 2` == "Desy"|LCH$`Party member 2` == "Kondor"|LCH$`Party member 2` == "Talia"|LCH$`Party member 2` == "Inul"|LCH$`Party member 2` == "Jinak"|LCH$`Party member 2` == "Milo"|LCH$`Party member 2` == "milo"|LCH$`Party member 2` == "Mindy"|LCH$`Party member 2` == "Lotte"|LCH$`Party member 2` == "Wilma" | LCH$`Party member 2` == "Vodka"  ] <- "adf"
+
+# flm for flanged male
+LCH$`Party member 2`[LCH$`Party member 2` == "Tomi"|LCH$`Party member 2` == "Helium"|LCH$`Party member 2` == "Chili"|LCH$`Party member 2` == "Helum"|LCH$`Party member 2` == "helium"|LCH$`Party member 2` == "Katmandun"|LCH$`Party member 2` == "Wodan"|LCH$`Party member 2` == "Dayak"|LCH$`Party member 2` == "Henk2012"|LCH$`Party member 2` == "Niko" ] <- "flm"
+
+#unfm for unflanged male
+LCH$`Party member 2`[LCH$`Party member 2` == "Ted"|LCH$`Party member 2` == "Salman"|LCH$`Party member 2` == "ufm"|LCH$`Party member 2` == "ufm3"|LCH$`Party member 2` == "Kecap"]<-"unfm"
+
+# j for immature
+LCH$`Party member 2`[LCH$`Party member 2` == "Streisel"|LCH$`Party member 2` == "Jerry"|LCH$`Party member 2` == "Danum"|LCH$`Party member 2` == "Jip"|LCH$`Party member 2` == "jip"|LCH$`Party member 2` == "Joya"|LCH$`Party member 2` == "Kino"|LCH$`Party member 2` == "Napo"]<-"j"
+
+# Change NA to "None" for no association
+LCH$`Party member 2` <- as.character(LCH$`Party member 2`)
+LCH$`Party member 2`[is.na(LCH$`Party member 2`)] <- "None"
+
+
+# then see how many replicates of each there are (e.g., we don't necessarily want to include associations that happened once)
+LCH %>% count(`Party member 2`)
+# by ID
+LCH %>% count(`Party member 2`, ID)
+
+# another observation is that most individuals did not have many enounters with other flanged males, remove these datapoints later
+
+# there is only one instance of Teju being in an association with unflanged adult male Ted with only 13 data points, eliminate these
+LCH<-LCH[LCH$`Party member 2`  != "unfm", ] 
+LCH<-LCH[LCH$`Party member 2`  != "unknown indiv", ] 
+LCH$Partner<-LCH$`Party member 2`
+
+# if a juvenile is in Party member 2, then look if an adult female is in party number 3
+# adf for adult female
+LCH$`Party member 3`[LCH$`Party member 3` == "Juni"|LCH$`Party member 3` == "Kerry"|LCH$`Party member 3` == "Pinky"|LCH$`Party member 3` == "Bella"|LCH$`Party member 3` == "Desy"|LCH$`Party member 3` == "Kondor"|LCH$`Party member 3` == "Talia"|LCH$`Party member 3` == "Inul"|LCH$`Party member 3` == "Jinak"|LCH$`Party member 3` == "Milo"|LCH$`Party member 3` == "milo"|LCH$`Party member 3` == "Mindy"|LCH$`Party member 3` == "Lotte"|LCH$`Party member 3` == "Wilma" | LCH$`Party member 3` == "Vodka"  ] <- "adf"
+LCH$`Party member 3`[LCH$`Party member 3` == "Tomi"|LCH$`Party member 3` == "Helium"|LCH$`Party member 3` == "Chili"|LCH$`Party member 3` == "Ekko"|LCH$`Party member 3` == "Helum"|LCH$`Party member 3` == "helium"|LCH$`Party member 3` == "Katmandun"|LCH$`Party member 3` == "Wodan"|LCH$`Party member 3` == "Dayak"|LCH$`Party member 3` == "Henk2012"|LCH$`Party member 3` == "Niko" ] <- "flm"
+#unfm for unflanged male
+LCH$`Party member 3`[LCH$`Party member 3` == "Ted"|LCH$`Party member 3` == "Salman"|LCH$`Party member 3` == "ufm"|LCH$`Party member 3` == "ufm3"|LCH$`Party member 3` == "Kecap"|LCH$`Party member 3` == "Deri"]<-"unfm"
+
+LCH$Partner2<-LCH$`Party member 3`
+LCH$Partner2[LCH$Partner2 == "Ipsy"|LCH$Partner2 == "Watchel"|LCH$Partner2 == "imm"|LCH$Partner2 == "Jerry"|LCH$Partner2 == "infant"|LCH$Partner2 == "Mawas"|LCH$Partner2 == "Petzy"|LCH$Partner2 == "Ivan"|LCH$Partner2 == "Kilmino"|LCH$Partner2 == "Pilatus"| LCH$Partner2 == "Moby"|LCH$Partner2 == "Kino"| LCH$Partner2 == "Jip"|LCH$Partner2 == "jip"|LCH$Partner2 == "Danum"]<-"j"
+
+unique(LCH$Partner2)
+# if one contains an adult female, then assign this to an additional column
+#mutate + case_when
+LCH<-LCH %>% 
+  mutate(New_Part = case_when(Partner == "j" & Partner2 == "adf" ~ "adf", 
+                         Partner == "adf" & Partner2 == "adf" ~ "adf", 
+                         Partner == "adf" & Partner2 == "j" ~ "adf", 
+                         Partner == "adf" & is.na(Partner2) ~ "adf", 
+                         Partner == "flm" & is.na(Partner2) ~ "flm", 
+                         Partner == "flm" & Partner2 == "adf" ~ "flm", 
+                         Partner == "j" & is.na(Partner2) ~ "j", 
+                         is.na(Partner) & is.na(Partner2) ~ "None" 
+                         )) #all other cases
+
+LCH$New_Part[is.na(LCH$New_Part)] <- "None"
+
+# interested mainly in the more common associations with females
+str(LCH)
+LCH<-LCH[!grepl("flm", LCH$New_Part),]
+
+
+# save this as a csv
+library(readr)
+write.csv(LCH, file="longCallsHeard.csv")
+
+
+
+
+LCH<-read.csv(file="longCallsHeard.csv")
+
+# We did not include spatial risk from competition in this analysis as hearing a long call provides immediate information on the presence
+# of a competitor and this also allowed us to estimate repeatability  
+
+# select out females and focal males 
+unique(LCH$ID)
+View(LCH)
+# A couple of LCH$ID were NA, rest were flanged males, remove NA
+# remove NA values from distance
+LCH<-LCH[!is.na(LCH$ID),]
+
+
+# If we want to know about spatial familiarity, then we need to know about how often individuals were sampled
+# poorly sampled individuals wont tell us much about relative space use - we wont know if those areas of an occurrence distribution are representative or not
+# Back to using PTS that were originally used to add the nearest timepoint for a GPS location to fill in missing points
+# As orangutans should have good long-term memory, this is more about whether they are undersampled
+# As they shift their ranges regularly and move in and out of the study area, this value is likely less about familiarity than where they choose to spend most of their time
+
+PTS
+library(dplyr)
+str(PTS)
+PTS$Date<-as.POSIXct(x = as.character(PTS$date), format = "%m/%d/%Y %H:%M")
+PTS$month <- format(PTS$Date, "%m")
+PTS$year <- format(PTS$Date, "%Y")
+PTS$id<-as.character(PTS$id)
+View(PTS %>% count(id, year))
+unique(PTS$id)
+
+
+# save as a csv and upload to movebank to use 
+write.csv(PTS, "GPS_LongCallHeard.csv")
+PTS<-read.csv(file="GPS_LongCallHeard.csv")
+# Want to select out females who were adults 
+# a we wanted to select individuals who were sampled enough to be confident that occurrence distributions accurately reflected their movement paths
+
+# Adult female Emma, Luca, Lotte, Rosa were only followed one month of the entire dataset, Manggo only two, Talia and Sidoney were only followed ~2 months per year- not likely representative
+# because females should be range-resident within the study area, smaller amounts of data may still represent where they tend to go, therefore any adult female with >6 months of data collection in the five year period include
+
+PTS1<-PTS[PTS$year=="2011"|PTS$year=="2012"|PTS$year=="2013"|PTS$year=="2014"|PTS$year=="2015"|PTS$year=="2016",]
+PTS2<-PTS1[PTS1$id == "Juni"|PTS1$id == "Mindy"|PTS1$id == "Kerry"|PTS1$id == "Kondor"|PTS1$id == "Pinky"|PTS1$id == "Jinak"|PTS1$id == "Inul"|PTS1$id == "Desy"|PTS1$id == "Cinta"|PTS1$id == "Tina",]
+
+# removed these individuals from previous code: PTS1$id == "Chili" |PTS1$id == "Wodan"|PTS1$id == "Helium"|PTS1$id == "Henk"|PTS1$id == "Katmandun"| PTS1$id == "Fayesh"|PTS1$id == "Niko"|PTS1$id == "Otto"|PTS1$id == "Tomi"|PTS1$id == "Teju"|PTS1$id == "Preman"|
+# select out the attributes needed to generate occurrence distributions
+# for individual occurrence distributions
+unique(PTS2$id)
+str(PTS2)
+PTS2$x<-PTS2$long
+PTS2$y<-PTS2$lat
+PTS2<-PTS2[!is.na(PTS2$x),]
+GPS_PTS_occur<-PTS2 %>% dplyr::select('id', 'lat', 'long', 'Date', 'x', 'y')
+
+
+#monthly long call occurrence distributions - represents encounter 'risk' for males bumping into adult females
+
+library(ctmm)
+# first generate a telemetry object
+# to do this, transform geographic coordinates into UTM
+library(sp)
+coordinates(GPS_PTS_occur) <- c("x", "y")
+proj4string(GPS_PTS_occur) <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+PTS_UTM <- spTransform(GPS_PTS_occur, CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south"))
+PTS_UTM<-as.data.frame(PTS_UTM)
+str(PTS_UTM)
+PTS_occur<-PTS_UTM%>% dplyr::select('id', 'long', 'lat', 'Date') # select only variables used to make occurrence distributions
+
+LCH_occur<-as.telemetry(object=PTS_occur, projection = "+init=epsg:32750 +proj=utm +zone=50 +south") 
+
+# semivariograms to assess range residency
+SVF <- list()
+for(i in 1:length(LCH_occur)){
+  print(i)
+  SVF[[i]] <- variogram(LCH_occur[[i]])}
+names(SVF) <- names(LCH_occur)
+View(SVF)
+plot(SVF[["Cinta"]])
+plot(SVF[["Desy"]])
+plot(SVF[["Inul"]])
+plot(SVF[["Jinak"]])
+plot(SVF[["Juni"]])
+plot(SVF[["Kerry"]])
+plot(SVF[["Kondor"]])
+plot(SVF[["Mindy"]])
+plot(SVF[["Pinky"]]) # Pinky sampled too infrequently
+plot(SVF[["Tina"]]) # Tina sampled too infrequently
+
+LCH.FIT <- list()
+for(i in 1:length(LCH_occur)){
+  print(i)
+  LCH.GUESS <- ctmm.guess(LCH_occur[[i]],CTMM=ctmm(error = 15), interactive=FALSE)
+  LCH.FIT[[i]] <- ctmm.select(LCH_occur[[i]],LCH.GUESS, verbose=TRUE,trace=2)
+}
+
+names(LCH.FIT) <- names(LCH_occur)
+
+LCH_od <- list()
+for(i in 1:length(LCH_occur)){
+  print(i)
+  LCH_od[[i]] <- occurrence(LCH_occur[[i]],LCH.FIT[[i]][[1]])}
+
+names(LCH_od) <- names(LCH_occur)
+
+save(LCH_od, file="LCH_od.Rdata")
+load(file="LCH_od.Rdata")
+
+# create rasters of each of these individuals
+library(spatialEco)
+library(raster)
+View(LCH_od)
+
+Cinta_rast<-raster(LCH_od[["Cinta"]] , DF="PDF") # create a raster for Cinta with cells representing the PDF of the occurrence ditribution
+Cinta_LCH_rast<-raster.transformation(Cinta_rast, trans = "stretch", smin = 0, smax = 1) # linear stretch to make raster values 0-1
+# now for the rest of the adult females who were adequately sampled
+Desy_rast<-raster(LCH_od[["Desy"]] , DF="PDF")
+Desy_LCH_rast<-raster.transformation(Desy_rast, trans = "stretch", smin = 0, smax = 1)
+Inul_rast<-raster(LCH_od[["Inul"]] , DF="PDF")
+Inul_LCH_rast<-raster.transformation(Inul_rast, trans = "stretch", smin = 0, smax = 1)
+Jinak_rast<-raster(LCH_od[["Jinak"]] , DF="PDF")
+Jinak_LCH_rast<-raster.transformation(Jinak_rast, trans = "stretch", smin = 0, smax = 1)
+Juni_rast<-raster(LCH_od[["Juni"]] , DF="PDF")
+Juni_LCH_rast<-raster.transformation(Juni_rast, trans = "stretch", smin = 0, smax = 1)
+Kerry_rast<-raster(LCH_od[["Kerry"]] , DF="PDF")
+Kerry_LCH_rast<-raster.transformation(Kerry_rast, trans = "stretch", smin = 0, smax = 1)
+Kondor_rast<-raster(LCH_od[["Kondor"]] , DF="PDF")
+Kondor_LCH_rast<-raster.transformation(Kondor_rast, trans = "stretch", smin = 0, smax = 1)
+Mindy_rast<-raster(LCH_od[["Mindy"]] , DF="PDF")
+Mindy_LCH_rast<-raster.transformation(Mindy_rast, trans = "stretch", smin = 0, smax = 1)
+Pinky_rast<-raster(LCH_od[["Pinky"]] , DF="PDF")
+Pinky_LCH_rast<-raster.transformation(Pinky_rast, trans = "stretch", smin = 0, smax = 1)
+Tina_rast<-raster(LCH_od[["Tina"]] , DF="PDF")
+Tina_LCH_rast<-raster.transformation(Tina_rast, trans = "stretch", smin = 0, smax = 1)
+
+
+# Extract data from each of these rasters
+library(sp)
+str(LCH)
+CRS<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south") # set the coordinate reference system to extract from rasters
+xy <- LCH[,c("x","y")] # create a set of coordinates
+LCH_sp <- SpatialPointsDataFrame(coords = xy, data = LCH, proj4string = CRS) # create a spatial points dataframe
+Cinta <- raster::extract(Cinta_LCH_rast, LCH_sp[,c("x", "y")]) # extract from each raster
+Desy<-raster::extract(Desy_LCH_rast, LCH_sp[,c("x", "y")])
+Jinak<-raster::extract(Jinak_LCH_rast, LCH_sp[,c("x", "y")])
+Juni<-raster::extract(Juni_LCH_rast, LCH_sp[,c("x", "y")])
+Inul<-raster::extract(Inul_LCH_rast, LCH_sp[,c("x", "y")])
+Kerry<-raster::extract(Kerry_LCH_rast, LCH_sp[,c("x", "y")])
+Kondor<-raster::extract(Kondor_LCH_rast, LCH_sp[,c("x", "y")])
+Mindy<-raster::extract(Mindy_LCH_rast, LCH_sp[,c("x", "y")])
+Pinky<-raster::extract(Pinky_LCH_rast, LCH_sp[,c("x", "y")])
+Tina<-raster::extract(Tina_LCH_rast, LCH_sp[,c("x", "y")])
+LCH_binded<-cbind(LCH_sp, Cinta, Desy, Jinak, Juni, Inul, Kerry, Kondor, Mindy, Pinky, Tina) # cbind along with original LCH data
+LCH_binded<-as.data.frame(LCH_binded@data)
+View(LCH_binded)
+names(LCH_binded)[21] <- "Cinta" # assign names to each column
+names(LCH_binded)[22] <- "Desy"
+names(LCH_binded)[23] <- "Jinak"
+names(LCH_binded)[24] <- "Juni"
+names(LCH_binded)[25] <- "Inul"
+names(LCH_binded)[26] <- "Kerry"
+names(LCH_binded)[27] <- "Kondor"
+names(LCH_binded)[28] <- "Mindy"
+names(LCH_binded)[29] <- "Pinky"
+names(LCH_binded)[30] <- "Tina"
+str(LCH_binded)
+
+# NA in these fields should be "0"
+LCH_binded[is.na(LCH_binded)] <- 0
+
+
+# by ID
+library(dplyr)
+LCH_binded%>%count(ID, i.Year)
+
+# Look at data
+str(LCH_binded)
+# very few observations where males are within Cinta or Desy's occurrence distribution at all, so don't include these individuals
+
+# save again a csv of this final dataset
+write.csv(LCH_binded, file="LongCallsHeard_ForAnalysis.csv")
+LCH_binded<-read.csv(file="LongCallsHeard_ForAnalysis.csv")
+
+# check for spatial autocorrelation 
+# unlikely that there is temporal autocorrelation as hearing a long call would happen relatively randomly
+library(DHARMa)
+scale(LCH_binded[9,21:30])
+library(lme4)
+fittedModel <- lmer(LCG ~Cinta + Desy+Jinak+Juni+Inul+Kerry+Kondor+Mindy+Pinky+Tina+Assoc+ (1|ID), data = LCH_binded)
+car::vif(fittedModel)
+# relatively low VIFs, despite overlap between some females, all below or equal to 1.31
+# DHARMa default is to re-simulted REs - this means spatial pattern remains
+# because residuals are still clustered
+
+res = simulateResiduals(fittedModel)
+testSpatialAutocorrelation(res, x =  LCH_df$x, y = LCH_df$y)
+
+# However, it should disappear if you just calculate an aggregate residuals per cluster (individual id)
+# cluster are spatially independent
+
+res2 = recalculateResiduals(res, group = LCH_df$id)
+testSpatialAutocorrelation(res2, 
+                           x =  aggregate(LCH_df$x, list(LCH_df$id), mean)$x, 
+                           y = aggregate(LCH_df$y, list(LCH_df$id), mean)$x)
+
+# no evidence of spatial autocorrelation, even when accounting for individual ID, results:
+#DHARMa Moran's I test for distance-based autocorrelation
+#data:  res2
+#observed = 0.063007, expected = -0.083333, sd = 0.137308, p-value = 0.2865
+#alternative hypothesis: Distance-based autocorrelation
+
+# data can be used in final analysis
+library(brms)
+library(loo)
+library(bayestestR)
+library(broom)
+library(tidyverse)
+library(performance)
+
+# brms defaut student t priors with 3<nu<2.5 should perform well as weakly informative priors for a logistic regression where the continuous predictors are scaled (like this analysis)
+# exponential for the variance components can keep the prior from extreme values
+# flat priors on coefficents to be conservative
+prior1 <- c(
+  prior(student_t(3, 0, 2.5), class ="Intercept"),
+  prior((flat), class ="b", coef="Assoc"),
+  prior((flat), class ="b", coef="dist"),
+  prior(student_t(3, 0, 2.5), class = sd,coef="Intercept"),
+  prior(exponential(2), class = sd, coef = "Assoc"))
+prior1
+LCH_binded$Year<-as.factor(LCH_binded$i.Year)
+# each male's data for hearing and responding to long calls overlaps only these four females consistently
+# we used association and year as fixed effects as we predicted a similar response for associating with a female
+# across all adult flanged males, we also did this because year could plausibly affect population-level responses
+# due to external environmental events (e.g., fire). However, the risk of encountering certain females is likely highly
+# individualized in terms of benefits, so we fit these terms only as slopes along with year and associations. We used flanged male
+# identity as the random intercept here
+Mod_LongCallsHeard5<-brms::brm(LCG ~Assoc*Year+ (1+Assoc*Year|ID), family = bernoulli, data=LCH_binded, iter = 8000, warmup = 2500, chains = 4, cores = 4,control = list(adapt_delta=0.99, max_treedepth=15), save_pars = save_pars(all = TRUE), seed=123)
+save(Mod_LongCallsHeard5, file="Mod_LongCallsHeard5.Rdata")
+
+
+load(file="Mod_LongCallsHeard4.Rdata")
+summary(Mod_LongCallsHeard4)
+coef(Mod_LongCallsHeard4)
+
+# posterior predictive check
+pp_check(Mod_LongCallsHeard4) # looks good
+
+# prior sensitivity
+#if (!require("devtools")) {
+ # install.packages("devtools")
+#}
+#devtools::install_github("corymccartan/adjustr@*release")
+library(adjustr)
+library(sjPlot)
+plot_model(Mod_LongCallsHeard2, type="re", transform)
+
+
+
+extract_samp_stmts(LCH_mod)
+
+sensitivity_to_prior(LCH_mod$fit, index = "Median", magnitude = 10)
+
+# Extract Variance and Correlation Components
+VarCorr(Mod_LongCallsHeard4)
+
+
+
+# extracting tau^2 for the varying intercept
+tau2 <- brms::VarCorr(Mod_LongCallsHeard4)[[1]]$sd[1]^2
+
+# computing the ICC for the intercept
+ICC1 <- tau2 / (tau2 + (pi^2 / 3) )
+ICC1
+
+# check loo r2 to see marginal and conditional r2
+loo_R2(Mod_LongCallsHeard4, resp = LCG)
+
+# Histograms and trace plots for supplementary materials
+
+Model_LongCallsHeard %>%
+  plot(
+    combo = c("hist", "trace"), widths = c(1, 1.5),
+    theme = theme_bw(base_size = 12) )
+
+
+# take a look at the group-level (individual orangutan) effects
+summary(LCH_mod)
+ranef(LCH_mod) # looking at random slope estimates
+
+icc(Mod_LongCallsHeard1, by_group = TRUE)
+variance_decomposition(Mod_LongCallsHeard1
+# check if estimates would change if a different set of priors were used 
+
+prior_summary(LCH_mod) # used a half student t for the intercept and on the sds, lkj_corr_cholesky(1) on L
+
+PRIORS2 <- c(
+             set_prior("cauchy(0,10)",  class = "Intercept"),
+             set_prior("cauchy(0,2)", class = "sd"),          # a half cauchy distribution (truncuated at 0) for the sd
+             set_prior("lkj(2)", class = "cor"))              # a Cholesky of 2 for the correlation
+
+
+modeldifferentMVpriors <- brm(LCG ~(Assoc + Jinak + Juni + Kerry + Kondor + Mindy + Inul |ID), family = bernoulli, data=LCH_binded,  iter = 5000, warmup = 1000, chains = 4, cores = 4, 
+                              prior         = PRIORS2,
+                              save_all_pars = TRUE,
+                              sample_prior  = TRUE,
+                              seed          = 123) 
