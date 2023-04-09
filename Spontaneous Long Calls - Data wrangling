@@ -1,0 +1,1555 @@
+# Lc project script for 2012 long calls
+# script for creating AKDEs and then polygons for Long call project
+library(move)
+#devtools::install_github("ctmm-initiative/ctmm")
+library(ctmm)
+library(readr)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(purrr)
+#setwd("O:/working/processed/Long Call Project - Script and data")
+setwd("C:/Users/lrlab/OneDrive/Desktop/LC_Project")
+#edit file that will go onto movebank to only have data from months
+# with enough location pts/individual to include in
+# occurrence distributions >50 locations/month
+Tuanan_GPS_2012 <- read_csv("Tuanan_2012_GPS_data.csv")
+as.data.frame(Tuanan_GPS_2012)
+Tuanan_GPS_2012$ID_Month<-paste(Tuanan_GPS_2012$identity, Tuanan_GPS_2012$Month)
+Tuanan_<-subset(Tuanan_GPS_2012, with(Tuanan_GPS_2012, ID_Month %in% names(which(table(ID_Month)>=25))))
+nrow(Tuanan_)
+nrow(Tuanan_GPS_2012)
+
+# need to filter dataframe to remove duplicate pts or those within 25 minutes of one another
+elapsed <- function(x)
+{
+  y <- abs(as.duration(x[2:length(x)] %--% x[1:(length(x)-1)]))
+  y >= 10*60
+}
+
+Tuanan_GPS_to_Movebank<-Tuanan_ %>%
+  group_split(ID) %>%  
+  map_dfr(~ .[c(T, if (nrow(.) > 1) elapsed(.$timestamp)),])
+str(Tuanan_GPS_to_Movebank)
+
+
+Tuanan_GPS_to_Movebank<-Tuanan_GPS_to_Movebank%>% dplyr::select('ID', 'latitude', 'longitude', 'timestamp')
+#table(is.na(Tuanan_GPS_to_Movebank$timestamp))
+strptime(Tuanan_GPS_to_Movebank$timestamp, "%Y-%m-%d %H:%M:%S")
+
+# for individual occurrence distributions
+
+Tuanan_GPS_to_occurrence<-Tuanan_GPS_to_Movebank%>% dplyr::select('id', 'latitude', 'longitude', 'timestamp')
+
+
+#write csv and add to movebank manually for ctmm
+write.csv(Tuanan_GPS_to_Movebank, file="2012 GPS ID_month.csv")
+Tuanan_GPS_to_Movebank<-read.csv(file="2012 GPS ID_month.csv")
+
+# log into movebank for file
+# movebank contains all the GPS data and a separate file
+# named "Bornean Orangutan 2012" was batched edited to contain only that year
+login <- movebankLogin(username="llabarge", password="Samango1992!")
+
+orang_study <- getMovebankData(study="Bornean orangutan, 2011-2013", login=login)
+
+# create as.telemetry object for ctmm models
+orangs<-as.telemetry(orang_study, projection = "+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+
+#run continuous-time movement models, select the best for each individual
+# then use the best model to run autocorrelated KDEs with an error of 25m assigned
+SVF <- list()
+for(i in 1:length(orangs)){
+  print(i)
+  SVF[[i]] <- variogram(orangs[[i]])}
+names(SVF) <- names(orangs)
+plot(SVF$Wodan)
+
+## sampling duration/sample size per length of time studied too small for
+## Bobo, Tina, Kentung, Fatih, Helium, Tuko, Manggo, Jordan, Pinky, Dayak, Preman
+## fit all models together, but only use Chili, Niko, Teju, Tomi, Wodan for creating AKDEs
+
+## fit models to all animals
+# AKDEs for largest area to create available points
+#occurrance distributions for risk of encounter
+#FIT <- list()
+#for(i in 1:length(orangs)){
+#  print(i)
+#  GUESS <- ctmm.guess(orangs[[i]],CTMM=ctmm(error = 15), interactive=FALSE)
+#  FIT[[i]] <- ctmm.select(orangs[[i]],GUESS, verbose=TRUE,trace=2)
+#}
+
+# extent based on Tuanan map
+library(raster)
+Tuanan_r<-raster()
+extent(Tuanan_r)<-extent(212812, 219348, 9758957, 9773670)
+res(Tuanan_r)<-25
+projection(Tuanan_r) <- "+init=epsg:32750 +proj=utm +zone=50 +units=m +south"
+
+
+#AKDE <- list()
+#for(i in 1:length(orangs)){
+#  print(i)
+#  AKDE[[i]] <- akde(orangs[[i]],FIT[[i]][[1]], grid=Tuanan_r)
+#}
+#names(AKDE) <- names(orangs)
+
+
+
+# some individuals appear so infrequently that ODs are likely not representative
+# of competition risk, these are:
+#Cinta, Tina, Kentung, Fatih, Tuko, Manggo, Jordan, Pinky Luca, Dolay, Preman
+# others were not present in the study area for more than 2 months
+#in 2012: Bobo, Fayesh, Flumnmu, Fugit, Talia, Tuko
+
+#save(AKDE, file="akdes.Rdata")
+#save(FIT, file="modFIT.Rdata")
+load(file="modFIT.Rdata")
+load(file="akdes.Rdata")
+load(file="OD.FIT.Rdata")
+#save(OD.FIT, file="OD.FIT.Rdata")
+#save(OD, file="OD.Rdata")
+#save(OD_all, file="OD_all.Rdata")
+load(file="OD.Rdata")
+load(file="OD_all.Rdata")
+# create as.telemetry object for ctmm models for monthly rasters
+OD_tel<-as.telemetry(object=Tuanan_GPS_to_Movebank, projection = "+init=epsg:32750 +proj=utm +zone=50 +units=m +south", mark.rm=TRUE)
+
+names(OD) <- names(OD_tel) # set names of monthly occurrence distributions
+
+
+
+
+# do the same for yearly rasters
+# create as.telemetry object for ctmm models
+OD_all_2012<-as.telemetry(object=Tuanan_GPS_to_occurrence, projection = "+init=epsg:32750 +proj=utm +zone=50 +units=m +south", mark.rm=TRUE)
+
+
+#fit movement models to each OD telemetry for monthly data
+# male ranges change frequently
+# running this takes a long time with error, load the saved file
+
+#OD.FIT <- list()
+#for(i in 1:length(OD_tel)){
+#  print(i)
+#  OD.GUESS <- ctmm.guess(OD_tel[[i]], CTMM=ctmm(error = 15), interactive=FALSE)
+#  OD.FIT[[i]] <- ctmm.select(OD_tel[[i]],OD.GUESS, verbose=TRUE,trace=2)
+#}
+
+names(OD.FIT) <- names(OD_tel)
+
+# unlike males, female ranges change very little, these ODs will be based on 
+# longterm data
+
+# running this takes a long time with error, load the saved file
+
+#OD.Year.FIT <- list()
+#for(i in 1:length(OD_all_2012)){
+#  print(i)
+#  OD.Year.GUESS <- ctmm.guess(OD_all_2012[[i]], CTMM=ctmm(error = 15), interactive=FALSE)
+#  OD.Year.FIT[[i]] <- ctmm.select(OD_all_2012[[i]],OD.Year.GUESS, verbose=TRUE,trace=2)
+#}
+
+names(OD.Year.FIT) <- names(OD_all_2012)
+
+OD_all <- list()
+for(i in 1:length(OD_all_2012)){
+  print(i)
+  OD_all[[i]] <- occurrence(OD_all_2012[[i]],OD.Year.FIT[[i]][[1]])
+}
+names(OD_all) <- names(OD_all_2012)
+
+
+
+# create a dataframe of GPS points for "available" locations - to use later
+Avail_pts<- do.call(rbind, lapply(OD_tel, function(x) as.data.frame(x)))
+Avail_pts$ID <- rownames(Avail_pts)
+library(tm)
+removeNumbers(Avail_pts$ID)
+Avail_pts$ID<- gsub("\\..*","",Avail_pts$ID)
+
+# remove month from the end of the ID
+Avail_pts$ID <- substr(as.character(Avail_pts$ID),
+                       start= 1,
+                       stop= nchar(as.character(Avail_pts$ID) )-2 )
+
+#select males of interest (those that were present frequently in 2012)
+str(Avail_pts$timestamp)
+
+Avail_pts<-Avail_pts[Avail_pts$ID %in% c("Chili","Niko", "Henk", "Tomi", "Teju" , "Wodan"), ]
+str(Avail_pts)
+
+PT<-rep("Available",times=2222)
+Avail_pts$PT<-PT
+
+
+# export rasters with probability distribution function as a proxy for competition risk
+# create separate per individual/year to keep track
+library(raster)
+
+#create individual raster files for competition risk / prob of
+# encounter with potential receptive females
+# use nearest OD distribution to the date of data collection
+# individuals chosen by looking at Tuanan presence records
+
+library(spatialEco)
+library(climateStability)
+ZeroRast<-Tuanan_r
+vals <- NA
+ZeroRast <- setValues(ZeroRast, vals)
+
+# create rasters for individual UDs and for competitors
+Chili<-raster(OD_all[["Chili"]] , DF="PDF")
+Chili<-raster.transformation(Chili, trans = "stretch", smin = 0, smax = 1)
+Helium<-raster(OD_all[["Helium"]] , DF="PDF")
+Helium<-raster.transformation(Helium, trans = "stretch", smin = 0, smax = 1)
+Henk<-raster(OD_all[["Henk"]] , DF="PDF")
+Henk<-raster.transformation(Henk, trans = "stretch", smin = 0, smax = 1)
+Katmandun<-raster(OD_all[["Katmandun"]] , DF="PDF")
+Katmandun<-raster.transformation(Katmandun, trans = "stretch", smin = 0, smax = 1)
+Niko<-raster(OD_all[["Niko"]] , DF="PDF")
+Niko<-raster.transformation(Niko, trans = "stretch", smin = 0, smax = 1)
+Otto<-raster(OD_all[["Otto"]] , DF="PDF")
+Otto<-raster.transformation(Otto, trans = "stretch", smin = 0, smax = 1)
+Preman<-raster(OD_all[["Preman"]] , DF="PDF")
+Preman<-raster.transformation(Preman, trans = "stretch", smin = 0, smax = 1)
+Teju<-raster(OD_all[["Teju"]] , DF="PDF")
+Teju<-raster.transformation(Teju, trans = "stretch", smin = 0, smax = 1)
+Tomi<-raster(OD_all[["Tomi"]] , DF="PDF")
+Tomi<-raster.transformation(Tomi, trans = "stretch", smin = 0, smax = 1)
+Wodan<-raster(OD_all[["Wodan"]] , DF="PDF")
+Wodan<-raster.transformation(Wodan, trans = "stretch", smin = 0, smax = 1)
+
+
+# females rasters
+Desy_rast<-raster(OD_all[["Desy"]] , DF="PDF")
+Desy_rast<-raster.transformation(Desy_rast, trans = "stretch", smin = 0, smax = 1)
+Jinak_rast<-raster(OD_all[["Jinak"]] , DF="PDF")
+Jinak_rast<-raster.transformation(Jinak_rast, trans = "stretch", smin = 0, smax = 1)
+Juni_rast<-raster(OD_all[["Juni"]] , DF="PDF")
+Juni_rast<-raster.transformation(Juni_rast, trans = "stretch", smin = 0, smax = 1)
+Inul_rast<-raster(OD_all[["Inul"]] , DF="PDF")
+Inul_rast<-raster.transformation(Inul_rast, trans = "stretch", smin = 0, smax = 1)
+Kerry_rast<-raster(OD_all[["Kerry"]] , DF="PDF")
+Kerry_rast<-raster.transformation(Kerry_rast, trans = "stretch", smin = 0, smax = 1)
+Kondor_rast<-raster(OD_all[["Kondor"]] , DF="PDF")
+Kondor_rast<-raster.transformation(Kondor_rast, trans = "stretch", smin = 0, smax = 1)
+Mindy_rast<-raster(OD_all[["Mindy"]] , DF="PDF")
+Mindy_rast<-raster.transformation(Mindy_rast, trans = "stretch", smin = 0, smax = 1)
+
+
+
+# get long call data on movebank
+login <- movebankLogin(username="llabarge", password="Samango1992!")
+##getMovebankStudies(login)
+
+##searchMovebankStudies(x="Bornean", login=login)
+
+LongCalls<-getMovebankData(study="Spontaneous Long Calls, Bornean Orangutan Flanged males 2012, Tuanan", login=login)
+
+# format long call data so can be merged as "cases" along with the
+# "control" available points
+## of these "spontaneous" long calls, 1011 came from the PAM system
+LC_tel<- as.telemetry(LongCalls, projection = "+init=epsg:32750 +proj=utm +zone=50 +south")
+
+
+LC_pts<- do.call(rbind, lapply(LC_tel, function(x) as.data.frame(x)))
+str(LC_pts)
+PT<-rep("LongCall",times=1234)
+LC_pts$PT<-PT
+
+library(stringr)
+LC_pts$ID <- rownames(LC_pts)
+unique(LC_pts$ID)
+library(tm)
+removeNumbers(LC_pts$ID)
+LC_pts$ID<- gsub("\\..*","",LC_pts$ID)
+LC_pts<-LC_pts[!grepl("Helium", LC_pts$ID),]
+LC_pts<-LC_pts[!grepl("Preman", LC_pts$ID),]
+LC_pts<-LC_pts[!grepl("Dayak", LC_pts$ID),]
+LC_points<-LC_pts[,c("x", "y", "PT", "timestamp", "ID")]
+rownames(LC_points) <- NULL
+as.data.frame(LC_points)
+
+
+# need to filter dataframe to remove duplicate pts or those within 25 minutes of one another
+elapsed <- function(x)
+{
+  y <- abs(as.duration(x[2:length(x)] %--% x[1:(length(x)-1)]))
+  y >= 25*60
+}
+
+LC_points %>%
+  group_split(ID) %>%  
+  map_dfr(~ .[c(T, if (nrow(.) > 1) elapsed(.$timestamp)),])
+
+# removes around 200 points that were part of the same event leaving 1070
+## this was because PAM system often recorded the same long calls as observation
+
+
+# add a month column (for later indexing for raster extract)
+# bind the long calls (cases) and available pts (controls) together
+
+Avail_pts$Month <- str_sub(Avail_pts$timestamp, start = 6L, end = 7L)
+LC_points$Month <- str_sub(LC_points$timestamp, start = 6L, end = 7L)
+
+LC_points<-LC_points[LC_points$ID %in% c("Chili","Niko","Henk", "Tomi", "Teju" , "Wodan"), ]
+
+LC_com<-LC_points%>% dplyr::select('ID', 'PT', 'Month', 'x', 'y', 'timestamp')
+
+Av_com<-Avail_pts%>% dplyr::select('ID', 'PT', 'Month','x', 'y', 'timestamp')
+LC_Control<-rbind(LC_com, Av_com)
+as.data.frame(LC_Control)
+write.csv(LC_Control, file="LC_case_control.csv")
+LC_Control<-read_csv(file="LC_case_control.csv")
+
+
+
+# denote 1 for long call, 0 for available
+library(plyr)
+LC_Control$PT <- revalue(LC_Control$PT, c("LongCall"=1))
+LC_Control$PT <- revalue(LC_Control$PT, c("Available"=0))
+# subset by month to extract monthly raster data
+March<-LC_Control[LC_Control$Month == "03", ]
+April<-LC_Control[LC_Control$Month == "04", ]
+May<-LC_Control[LC_Control$Month == "05", ]
+June<-LC_Control[LC_Control$Month == "06", ]
+July<-LC_Control[LC_Control$Month == "07", ]
+August<-LC_Control[LC_Control$Month == "08", ]
+September<-LC_Control[LC_Control$Month == "09", ]
+October<-LC_Control[LC_Control$Month == "10", ]
+November<-LC_Control[ LC_Control$Month == "11", ]
+December<-LC_Control[LC_Control$Month == "12", ]
+
+
+
+
+Chili_subset8<-LC_Control[LC_Control$ID == "Chili" & LC_Control$Month == "08", ]
+Chili_subset9<-LC_Control[LC_Control$ID == "Chili" & LC_Control$Month == "09", ]
+Chili_subset10<-LC_Control[LC_Control$ID == "Chili" & LC_Control$Month == "10", ]
+Chili_subset11<-LC_Control[LC_Control$ID == "Chili" & LC_Control$Month == "11", ]
+Niko_subset3<-LC_Control[LC_Control$ID == "Niko" & LC_Control$Month == "03", ]
+Niko_subset5<-LC_Control[LC_Control$ID == "Niko" & LC_Control$Month == "05", ]
+Niko_subset8<-LC_Control[LC_Control$ID == "Niko" & LC_Control$Month == "08", ]
+Niko_subset9<-LC_Control[LC_Control$ID == "Niko" & LC_Control$Month == "09", ]
+Niko_subset11<-LC_Control[LC_Control$ID == "Niko" & LC_Control$Month == "11", ]
+Niko_subset12<-LC_Control[LC_Control$ID == "Niko" & LC_Control$Month == "12", ]
+Teju_subset8<-LC_Control[LC_Control$ID == "Teju" & LC_Control$Month == "08", ]
+Teju_subset10<-LC_Control[LC_Control$ID == "Teju" & LC_Control$Month == "10", ]
+Teju_subset11<-LC_Control[LC_Control$ID == "Teju" & LC_Control$Month == "11", ]
+Teju_subset12<-LC_Control[LC_Control$ID == "Teju" & LC_Control$Month == "12", ]
+Tomi_subset3<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "03", ]
+Tomi_subset4<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "04", ]
+Tomi_subset5<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "05", ]
+Tomi_subset6<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "06", ]
+Tomi_subset7<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "07", ]
+Tomi_subset8<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "08", ]
+Tomi_subset9<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "09", ]
+Tomi_subset10<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "10", ]
+Tomi_subset11<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "11", ]
+Tomi_subset12<-LC_Control[LC_Control$ID == "Tomi" & LC_Control$Month == "12", ]
+Wodan_subset3<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "03", ]
+Wodan_subset4<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "04", ]
+Wodan_subset5<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "05", ]
+Wodan_subset6<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "06", ]
+Wodan_subset7<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "07", ]
+Wodan_subset8<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "08", ]
+Wodan_subset9<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "09", ]
+Wodan_subset10<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "10", ]
+Wodan_subset11<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "11", ]
+Wodan_subset12<-LC_Control[LC_Control$ID == "Wodan" & LC_Control$Month == "12", ]
+
+# create monthly long call occurrence distributions by using long call data (both spontaneous and responses) and creating an ID_date column
+# download previously month-separated data from movebank and fit movement models and ODs
+# this is now stored as a text file so # before each line and load the saved file
+
+library(move)
+library(ctmm)
+#LC_to_df<-getMovebankData(study="Long Calls, Bornean Orangutan, Pongo pygmaeus, Tuanan, Central Kalimatan, Indonesia", login=login)
+#LC_to_df<-as.telemetry(LC_to_df, projection = "+init=epsg:32750 +proj=utm +zone=50 +south")
+#LC_df<- do.call(rbind, lapply(LC_to_df, function(x) as.data.frame(x)))
+#head(LC_df)
+
+#library(stringr)
+#LC_df$ID <- rownames(LC_df)
+#library(tm)
+#removeNumbers(LC_df$ID)
+#LC_df$ID<- gsub("\\..*","",LC_df$ID)
+#LC_df$ID<- gsub("LC","",LC_df$ID)
+#LC_df$month <- format(LC_df$timestamp, "%m")
+#LC_df$year <- format(LC_df$timestamp, "%y")
+#rownames(LC_df)<-NULL
+
+#column for ID_date to make monthly occurrence distributions
+#LC_df$ID_date<-gsub(" ", "", paste(LC_df$ID,"_", LC_df$month))
+#LC_<-subset(LC_df, year == "12")
+
+#LC_to_<-LC_[LC_$longitude >= "113.0" & LC_$longitude <= "115.0",]
+
+# need to filter dataframe to remove duplicate pts or those within 25 minutes of one another
+
+#elapsed <- function(x)
+#{
+#  y <- abs(as.duration(x[2:length(x)] %--% x[1:(length(x)-1)]))
+#  y >= 10*60
+#}
+
+#LC_to_movebank<-LC_to_ %>%
+#  group_split(ID_date) %>%  
+#  map_dfr(~ .[c(T, if (nrow(.) > 1) elapsed(.$timestamp)),])
+
+# remove monthly data with less than 10 observations
+#LC_to_movebank<-LC_to_movebank[with(LC_to_movebank, ID_date %in% names(which(table(ID_date)>=10))), ]
+#str(LC_to_movebank)
+#select only variables needed for Movebank
+
+#LC_to_movebank$Timestamp<-LC_to_movebank$timestamp
+#LC_to_movebank$id<-LC_to_movebank$ID_date
+
+#LC_movebank<-LC_to_movebank%>% dplyr::select('id', 'latitude', 'longitude', 'Timestamp')
+#rownames(LC_movebank) <- NULL
+#LongCalls_to_movebank<-as.data.frame(LC_movebank)
+#head(LongCalls_to_movebank)
+
+# write txt to upload to movebank
+#write.csv(LongCalls_to_movebank, file="LongCalls_to_movebank.txt")
+LongCalls_to_movebank<-read.csv(file="LongCalls_to_movebank.txt")
+str(LongCalls_to_movebank)
+str(Tuanan_GPS_to_Movebank)
+
+# replace column name so that both GPS data and long call data match to go into one dataframe
+colnames(Tuanan_GPS_to_Movebank)[which(names(Tuanan_GPS_to_Movebank) == "ID")] <- "id"
+colnames(Tuanan_GPS_to_Movebank)[which(names(Tuanan_GPS_to_Movebank) == "timestamp")] <- "Timestamp"
+LongCalls_Move<-rbind(LongCalls_to_movebank, Tuanan_GPS_to_Movebank) # rbind the columns together to create one dataframe
+
+
+# ensure the names are the same
+unique(LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Chili08", "Chili_08", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Chili09", "Chili_09", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Chili10", "Chili_10", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Chili11", "Chili_11", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Henk03", "Henk_03", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Henk10", "Henk_10", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Henk12", "Henk_12", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Niko03", "Niko_03", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Niko05", "Niko_05", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Niko09", "Niko_09", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Otto03", "Otto_03", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Otto08", "Otto_08", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Teju11", "Teju_11", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Teju12", "Teju_12", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi04", "Tomi_04", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi05", "Tomi_05", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi06", "Tomi_06", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi07", "Tomi_07", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi08", "Tomi_08", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi09", "Tomi_09", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi10", "Tomi_10", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi11", "Tomi_11", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Tomi12", "Tomi_12", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan03", "Wodan_03", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan05", "Wodan_05", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan06", "Wodan_06", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan07", "Wodan_07", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan08", "Wodan_08", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan09", "Wodan_09", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan10", "Wodan_10", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan11", "Wodan_11", LongCalls_Move$id)
+LongCalls_Move$id<- gsub("Wodan12", "Wodan_12", LongCalls_Move$id)
+
+# drop some of the individuals we don't need to make this run faster
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Fayesh_10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Flunmu_12"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Dayak_06"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Dayak_09"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Dayak_10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Dayak_11"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Dayak_12"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Helium_09"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Helium_10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Helium_11"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Katmandun_04"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id=="Katmandun_06"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Preman_11"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Preman_12"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Desy10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Fayesh10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Fugit08"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Jinak03"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Jinak04"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Jinak06"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Jinak08"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Jinak12"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Juni05"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Juni07"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Juni09"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Katmandun04"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Katmandun06"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kentung03"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kerry03"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kerry07"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kerry08"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kerry11"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Inul10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kondor10"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kondor03"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kondor06"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kondor07"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Kondor08"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Mindy03"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Mindy05"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Mindy07"),]
+LongCalls_Move<-LongCalls_Move[!(LongCalls_Move$id== "Mindy10"),]
+
+#monthly long call occurrence distributions - represents perceived competitive risk
+#may be more accurrate than ODs of just competitor risk
+# error is the same as with other ODs because points are collected mainly under the animals in the field
+
+
+
+LongCalls_Monthly<-as.telemetry(object=LongCalls_Move, projection = "+init=epsg:32750 +proj=utm +zone=50 +south") # create as.telemetry object for ctmm models for monthly rasters
+
+# run the models for each individual per month
+LC.FIT <- list()
+for(i in 1:length(LongCalls_Monthly)){
+  print(i)
+  LC.GUESS <- ctmm.guess(LongCalls_Monthly[[i]],CTMM=ctmm(error = 15), interactive=FALSE)
+  LC.FIT[[i]] <- ctmm.select(LongCalls_Monthly[[i]],LC.GUESS, verbose=TRUE,trace=2)
+}
+
+names(LC.FIT) <- names(LongCalls_Monthly)
+
+LC_Monthly <- list()
+for(i in 1:length(LongCalls_Monthly)){
+  print(i)
+  LC_Monthly[[i]] <- occurrence(LongCalls_Monthly[[i]],LC.FIT[[i]][[1]])}
+
+names(LC_Monthly) <- names(LongCalls_Monthly)
+save(LC_Monthly, file="LC_Monthly.Rdata")
+save(LC_Monthly, file="LC_Monthly.rds")
+load(file="LC_Monthly.Rdata")
+str(LC_Monthly)
+
+# create rasters of each of these
+library(spatialEco)
+library(raster)
+
+# February
+Wodan_02_LC<-raster(LC_Monthly[["Wodan_02"]] , DF="PDF")
+Wodan_02_LC<-raster.transformation(Wodan_02_LC, trans = "stretch", smin = 0, smax = 1)
+
+#March
+Henk_03_LC<-raster(LC_Monthly[["Henk_03"]] , DF="PDF")
+Henk_03_LC<-raster.transformation(Henk_03_LC, trans = "stretch", smin = 0, smax = 1)
+Niko_03_LC<-raster(LC_Monthly[["Niko_03"]] , DF="PDF")
+Niko_03_LC<-raster.transformation(Niko_03_LC, trans = "stretch", smin = 0, smax = 1)
+Otto_03_LC<-raster(LC_Monthly[["Otto_03"]] , DF="PDF")
+Otto_03_LC<-raster.transformation(Otto_03_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_03_LC<-raster(LC_Monthly[["Tomi_03"]] , DF="PDF")
+Tomi_03_LC<-raster.transformation(Tomi_03_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_03_LC<-raster(LC_Monthly[["Wodan_03"]] , DF="PDF")
+Wodan_03_LC<-raster.transformation(Wodan_03_LC, trans = "stretch", smin = 0, smax = 1)
+
+#April
+
+Tomi_04_LC<-raster(LC_Monthly[["Tomi_04"]], DF="PDF")
+Tomi_04_LC<-raster.transformation(Tomi_04_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_04_LC<-raster(LC_Monthly[["Wodan_04"]] , DF="PDF")
+Wodan_04_LC<-raster.transformation(Wodan_04_LC, trans = "stretch", smin = 0, smax = 1)
+
+#May
+Niko_05_LC<-raster(LC_Monthly[["Niko_05"]], DF="PDF")
+Niko_05_LC<-raster.transformation(Niko_05_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_05_LC<-raster(LC_Monthly[["Tomi_05"]], DF="PDF")
+Tomi_05_LC<-raster.transformation(Tomi_05_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_05_LC<-raster(LC_Monthly[["Wodan_05"]], DF="PDF")
+Wodan_05_LC<-raster.transformation(Wodan_05_LC, trans = "stretch", smin = 0, smax = 1)
+
+#June
+Henk_06_LC<-raster(LC_Monthly[["Henk_06"]], DF="PDF")
+Henk_06_LC<-raster.transformation(Henk_06_LC, trans = "stretch", smin = 0, smax = 1)
+Katmandun_06_LC<-raster(LC_Monthly[["Katmandun_06"]], DF="PDF")
+Katmandun_06_LC<-raster.transformation(Katmandun_06_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_06_LC<-raster(LC_Monthly[["Wodan_06"]], DF="PDF")
+Wodan_06_LC<-raster.transformation(Wodan_06_LC, trans = "stretch", smin = 0, smax = 1)
+
+
+#July
+Henk_07_LC<-raster(LC_Monthly[["Henk_07"]], DF="PDF")
+Henk_07_LC<-raster.transformation(Henk_07_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_07_LC<-raster(LC_Monthly[["Tomi_07"]], DF="PDF")
+Tomi_07_LC<-raster.transformation(Tomi_07_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_07_LC<-raster(LC_Monthly[["Wodan_07"]], DF="PDF")
+Wodan_07_LC<-raster.transformation(Wodan_07_LC, trans = "stretch", smin = 0, smax = 1)
+
+
+#August
+Chili_08_LC<-raster(LC_Monthly[["Chili_08"]] , DF="PDF")
+Chili_08_LC<-raster.transformation(Chili_08_LC, trans = "stretch", smin = 0, smax = 1)
+Henk_08_LC<-raster(LC_Monthly[["Henk_08"]] , DF="PDF")
+Henk_08_LC<-raster.transformation(Henk_08_LC, trans = "stretch", smin = 0, smax = 1)
+Niko_08_LC<-raster(LC_Monthly[["Niko_08"]] , DF="PDF")
+Niko_08_LC<-raster.transformation(Niko_08_LC, trans = "stretch", smin = 0, smax = 1)
+Otto_08_LC<-raster(LC_Monthly[["Otto_08"]] , DF="PDF")
+Otto_08_LC<-raster.transformation(Otto_08_LC, trans = "stretch", smin = 0, smax = 1)
+Teju_08_LC<-raster(LC_Monthly[["Teju_08"]], DF="PDF")
+Teju_08_LC<-raster.transformation(Teju_08_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_08_LC<-raster(LC_Monthly[["Wodan_08"]], DF="PDF")
+Wodan_08_LC<-raster.transformation(Wodan_08_LC, trans = "stretch", smin = 0, smax = 1)
+
+#september
+Chili_09_LC<-raster(LC_Monthly[["Chili_09"]] , DF="PDF")
+Chili_09_LC<-raster.transformation(Chili_09_LC, trans = "stretch", smin = 0, smax = 1)
+Helium_09_LC<-raster(LC_Monthly[["Helium_09"]], DF="PDF")
+Helium_09_LC<-raster.transformation(Helium_09_LC, trans = "stretch", smin = 0, smax = 1)
+Henk_09_LC<-raster(LC_Monthly[["Henk_09"]], DF="PDF")
+Henk_09_LC<-raster.transformation(Henk_09_LC, trans = "stretch", smin = 0, smax = 1)
+Niko_09_LC<-raster(LC_Monthly[["Niko_09"]], DF="PDF")
+Niko_09_LC<-raster.transformation(Niko_09_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_09_LC<-raster(LC_Monthly[["Tomi_09"]], DF="PDF")
+Tomi_09_LC<-raster.transformation(Tomi_09_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_09_LC<-raster(LC_Monthly[["Wodan_09"]], DF="PDF")
+Wodan_09_LC<-raster.transformation(Wodan_09_LC, trans = "stretch", smin = 0, smax = 1)
+
+#October
+Chili_10_LC<-raster(LC_Monthly[["Chili_10"]]  , DF="PDF")
+Chili_10_LC<-raster.transformation(Chili_10_LC, trans = "stretch", smin = 0, smax = 1)
+Helium_10_LC<-raster(LC_Monthly[["Helium_10"]], DF="PDF")
+Helium_10_LC<-raster.transformation(Helium_10_LC, trans = "stretch", smin = 0, smax = 1)
+Henk_10_LC<-raster(LC_Monthly[["Henk_10"]], DF="PDF")
+Henk_10_LC<-raster.transformation(Henk_10_LC, trans = "stretch", smin = 0, smax = 1)
+Teju_10_LC<-raster(LC_Monthly[["Teju_10"]], DF="PDF")
+Teju_10_LC<-raster.transformation(Teju_10_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_10_LC<-raster(LC_Monthly[["Tomi_10"]], DF="PDF")
+Tomi_10_LC<-raster.transformation(Tomi_10_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_10_LC<-raster(LC_Monthly[["Wodan_10"]], DF="PDF")
+Wodan_10_LC<-raster.transformation(Wodan_10_LC, trans = "stretch", smin = 0, smax = 1)
+
+#November
+Chili_11_LC<-raster(LC_Monthly[["Chili_11"]]  , DF="PDF")
+Chili_11_LC<-raster.transformation(Chili_11_LC, trans = "stretch", smin = 0, smax = 1)
+Helium_11_LC<-raster(LC_Monthly[["Helium_11"]]  , DF="PDF")
+Helium_11_LC<-raster.transformation(Helium_11_LC, trans = "stretch", smin = 0, smax = 1)
+Niko_11_LC<-raster(LC_Monthly[["Niko_11"]]  , DF="PDF")
+Niko_11_LC<-raster.transformation(Niko_11_LC, trans = "stretch", smin = 0, smax = 1)
+Preman_11_LC<-raster(LC_Monthly[["Preman_11"]] , DF="PDF")
+Preman_11_LC<-raster.transformation(Preman_11_LC, trans = "stretch", smin = 0, smax = 1)
+Teju_11_LC<-raster(LC_Monthly[["Teju_11"]], DF="PDF")
+Teju_11_LC<-raster.transformation(Teju_11_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_11_LC<-raster(LC_Monthly[["Tomi_11"]], DF="PDF")
+Tomi_11_LC<-raster.transformation(Tomi_11_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_11_LC<-raster(LC_Monthly[["Wodan_11"]], DF="PDF")
+Wodan_11_LC<-raster.transformation(Wodan_11_LC, trans = "stretch", smin = 0, smax = 1)
+
+#December
+Henk_12_LC<-raster(LC_Monthly[["Henk_12"]], DF="PDF")
+Henk_12_LC<-raster.transformation(Henk_12_LC, trans = "stretch", smin = 0, smax = 1)
+Niko_12_LC<-raster(LC_Monthly[["Niko_12"]]  , DF="PDF")
+Niko_12_LC<-raster.transformation(Niko_12_LC, trans = "stretch", smin = 0, smax = 1)
+Preman_12_LC<-raster(LC_Monthly[["Preman_12"]] , DF="PDF")
+Preman_12_LC<-raster.transformation(Preman_12_LC, trans = "stretch", smin = 0, smax = 1)
+Teju_12_LC<-raster(LC_Monthly[["Teju_12"]], DF="PDF")
+Teju_12_LC<-raster.transformation(Teju_12_LC, trans = "stretch", smin = 0, smax = 1)
+Tomi_12_LC<-raster(LC_Monthly[["Tomi_12"]], DF="PDF")
+Tomi_12_LC<-raster.transformation(Tomi_12_LC, trans = "stretch", smin = 0, smax = 1)
+Wodan_12_LC<-raster(LC_Monthly[["Wodan_12"]], DF="PDF")
+Wodan_12_LC<-raster.transformation(Wodan_12_LC, trans = "stretch", smin = 0, smax = 1)
+
+
+# create spatial points data frames to extract from specific rasters for specific months
+
+
+# March
+
+CRS<-CRS("+init=epsg:32750 +proj=utm +zone=50 +units=m +south")
+library(sp)
+library(raster)
+
+xy <- March[,c("x","y")]
+M_subset3_sp <- SpatialPointsDataFrame(coords = xy, data = March, proj4string = CRS)
+M_Chili <- raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+
+M_Henk<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+M_Niko<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+
+M_Otto<-raster::extract(Otto, M_subset3_sp[,c("x", "y")])
+
+M_Teju<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+M_Tomi<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+M_Wodan<-raster::extract(Wodan, M_subset3_sp[,c("x", "y")])
+M_Juni<-raster::extract(Juni_rast, M_subset3_sp[,c("x", "y")])
+M_Inul<-raster::extract(Inul_rast, M_subset3_sp[,c("x", "y")])
+M_Kerry <-raster::extract(Kerry_rast, M_subset3_sp[,c("x", "y")])
+M_Mindy <-raster::extract(Mindy_rast, M_subset3_sp[,c("x", "y")])
+Chili_LC<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(ZeroRast, M_subset3_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_02_LC, M_subset3_sp[,c("x", "y")])
+M_3<-cbind(M_subset3_sp, M_Chili,  M_Henk, M_Niko,  M_Otto, M_Teju, M_Tomi, M_Wodan, M_Juni, M_Inul, M_Kerry, M_Mindy, Chili_LC,Henk_LC,Niko_LC, Otto_LC ,  Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(M_3)
+names(M_3)[8] <- "Chili"
+
+names(M_3)[9] <- "Henk"
+names(M_3)[10] <- "Niko"
+
+names(M_3)[11] <- "Otto"
+
+names(M_3)[12] <- "Teju"
+names(M_3)[13] <- "Tomi"
+names(M_3)[14] <- "Wodan"
+names(M_3)[15] <- "Juni"
+names(M_3)[16] <- "Inul"
+names(M_3)[17] <- "Kerry"
+names(M_3)[18] <- "Mindy"
+names(M_3)[19]<-"Chili_LC"
+
+names(M_3)[20]<-"Henk_LC"
+names(M_3)[21]<-"Niko_LC"
+
+names(M_3)[22]<-"Otto_LC"
+
+names(M_3)[23]<-"Teju_LC"
+names(M_3)[24]<-"Tomi_LC"
+names(M_3)[25]<-"Wodan_LC"
+M_3<-as.data.frame(M_3)
+str(M_3)
+# extra columns added, remove so that rbind works
+M_3<-M_3[, !(colnames(M_3) %in% c("x.1","y.1"))]
+# April
+xy <- April[,c("x","y")]
+A_subset4_sp <- SpatialPointsDataFrame(coords = xy, data = April, proj4string = CRS)
+A_Chili <- raster::extract(ZeroRast, A_subset4_sp[,c("x", "y")])
+
+A_Henk<-raster::extract(Henk, A_subset4_sp[,c("x", "y")])
+A_Niko<-raster::extract(Niko, A_subset4_sp[,c("x", "y")])
+
+A_Otto<-raster::extract(Otto, A_subset4_sp[,c("x", "y")])
+
+A_Teju<-raster::extract(ZeroRast, A_subset4_sp[,c("x", "y")])
+A_Tomi<-raster::extract(Tomi, A_subset4_sp[,c("x", "y")])
+A_Wodan<-raster::extract(Wodan, A_subset4_sp[,c("x", "y")])
+A_Juni<-raster::extract(Juni_rast, A_subset4_sp[,c("x", "y")])
+A_Inul<-raster::extract(Inul_rast, A_subset4_sp[,c("x", "y")])
+A_Kerry <-raster::extract(Kerry_rast, A_subset4_sp[,c("x", "y")])
+A_Mindy <-raster::extract(Mindy_rast, A_subset4_sp[,c("x", "y")])
+Chili_LC<-raster::extract(ZeroRast, A_subset4_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(Henk_03_LC, A_subset4_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(Niko_03_LC, A_subset4_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, A_subset4_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, A_subset4_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(Tomi_03_LC, A_subset4_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_03_LC, A_subset4_sp[,c("x", "y")])
+A_4<-cbind(A_subset4_sp, A_Chili, A_Henk, A_Niko,  A_Otto,  A_Teju, A_Tomi, A_Wodan, A_Juni, A_Inul, A_Kerry, A_Mindy, Chili_LC, Henk_LC,Niko_LC,Otto_LC ,  Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(A_4)
+names(A_4)[8] <- "Chili"
+
+names(A_4)[9] <- "Henk"
+names(A_4)[10] <- "Niko"
+
+names(A_4)[11] <- "Otto"
+
+names(A_4)[12] <- "Teju"
+names(A_4)[13] <- "Tomi"
+names(A_4)[14] <- "Wodan"
+names(A_4)[15] <- "Juni"
+names(A_4)[16] <- "Inul"
+names(A_4)[17] <- "Kerry"
+names(A_4)[18] <- "Mindy"
+names(A_4)[19]<-"Chili_LC"
+
+names(A_4)[20]<-"Henk_LC"
+names(A_4)[21]<-"Niko_LC"
+
+names(A_4)[22]<-"Otto_LC"
+
+names(A_4)[23]<-"Teju_LC"
+names(A_4)[24]<-"Tomi_LC"
+names(A_4)[25]<-"Wodan_LC"
+A_4<-as.data.frame(A_4@data)
+
+str(A_4)
+# May
+xy <- May[,c("x","y")]
+MA_subset5_sp <- SpatialPointsDataFrame(coords = xy, data = May, proj4string = CRS)
+MA_Chili <- raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+
+MA_Henk<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+MA_Niko<-raster::extract(Niko, MA_subset5_sp[,c("x", "y")])
+
+MA_Otto<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+
+MA_Teju<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+MA_Tomi<-raster::extract(Tomi, MA_subset5_sp[,c("x", "y")])
+MA_Wodan<-raster::extract(Wodan, MA_subset5_sp[,c("x", "y")])
+MA_Juni<-raster::extract(Juni_rast, MA_subset5_sp[,c("x", "y")])
+MA_Inul<-raster::extract(Inul_rast, MA_subset5_sp[,c("x", "y")])
+MA_Kerry <-raster::extract(Kerry_rast, MA_subset5_sp[,c("x", "y")])
+MA_Mindy <-raster::extract(Mindy_rast, MA_subset5_sp[,c("x", "y")])
+Chili_LC<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, MA_subset5_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(Tomi_04_LC, MA_subset5_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_04_LC, MA_subset5_sp[,c("x", "y")])
+MA_5<-cbind(MA_subset5_sp, MA_Chili, MA_Henk, MA_Niko, MA_Otto,  MA_Teju, MA_Tomi, MA_Wodan, MA_Juni, MA_Inul, MA_Kerry, MA_Mindy, Chili_LC,Henk_LC,Niko_LC,Otto_LC , Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(MA_5)
+names(MA_5)[8] <- "Chili"
+
+names(MA_5)[9] <- "Henk"
+names(MA_5)[10] <- "Niko"
+
+names(MA_5)[11] <- "Otto"
+
+names(MA_5)[12] <- "Teju"
+names(MA_5)[13] <- "Tomi"
+names(MA_5)[14] <- "Wodan"
+names(MA_5)[15] <- "Juni"
+names(MA_5)[16] <- "Inul"
+names(MA_5)[17] <- "Kerry"
+names(MA_5)[18] <- "Mindy"
+names(MA_5)[19]<-"Chili_LC"
+
+names(MA_5)[20]<-"Henk_LC"
+names(MA_5)[21]<-"Niko_LC"
+
+names(MA_5)[22]<-"Otto_LC"
+
+names(MA_5)[23]<-"Teju_LC"
+names(MA_5)[24]<-"Tomi_LC"
+names(MA_5)[25]<-"Wodan_LC"
+MA_5<-as.data.frame(MA_5@data)
+str(MA_5)
+
+# June
+xy <- June[,c("x","y")]
+J_subset6_sp <- SpatialPointsDataFrame(coords = xy, data = June, proj4string = CRS)
+J_Chili <- raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+
+J_Henk<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+J_Niko<-raster::extract(Niko, J_subset6_sp[,c("x", "y")])
+
+J_Otto<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+
+J_Teju<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+J_Tomi<-raster::extract(Tomi, J_subset6_sp[,c("x", "y")])
+J_Wodan<-raster::extract(Wodan, J_subset6_sp[,c("x", "y")])
+J_Juni<-raster::extract(Juni_rast, J_subset6_sp[,c("x", "y")])
+J_Inul<-raster::extract(Inul_rast, J_subset6_sp[,c("x", "y")])
+J_Kerry <-raster::extract(Kerry_rast, J_subset6_sp[,c("x", "y")])
+J_Mindy <-raster::extract(Mindy_rast, J_subset6_sp[,c("x", "y")])
+Chili_LC<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(Niko_05_LC, J_subset6_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, J_subset6_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(Tomi_05_LC, J_subset6_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_05_LC, J_subset6_sp[,c("x", "y")])
+J_6<-cbind(J_subset6_sp, J_Chili,  J_Henk, J_Niko, J_Otto,  J_Teju, J_Tomi, J_Wodan, J_Juni, J_Inul, J_Kerry, J_Mindy, Chili_LC, Henk_LC,Niko_LC, Otto_LC ,  Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(J_6)
+names(J_6)[8] <- "Chili"
+
+names(J_6)[9] <- "Henk"
+names(J_6)[10] <- "Niko"
+
+names(J_6)[11] <- "Otto"
+
+names(J_6)[12] <- "Teju"
+names(J_6)[13] <- "Tomi"
+names(J_6)[14] <- "Wodan"
+names(J_6)[15] <- "Juni"
+names(J_6)[16] <- "Inul"
+names(J_6)[17] <- "Kerry"
+names(J_6)[18] <- "Mindy"
+names(J_6)[19]<-"Chili_LC"
+
+names(J_6)[20]<-"Henk_LC"
+names(J_6)[21]<-"Niko_LC"
+
+names(J_6)[22]<-"Otto_LC"
+
+names(J_6)[23]<-"Teju_LC"
+names(J_6)[24]<-"Tomi_LC"
+names(J_6)[25]<-"Wodan_LC"
+J_6<-as.data.frame(J_6@data)
+str(J_6)
+# July
+xy <- July[,c("x","y")]
+Ju_subset7_sp <- SpatialPointsDataFrame(coords = xy, data = July, proj4string = CRS)
+Ju_Chili <- raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+
+Ju_Henk<-raster::extract(Henk, Ju_subset7_sp[,c("x", "y")])
+Ju_Niko<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+
+Ju_Otto<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+
+Ju_Teju<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+Ju_Tomi<-raster::extract(Tomi, Ju_subset7_sp[,c("x", "y")])
+Ju_Wodan<-raster::extract(Wodan, Ju_subset7_sp[,c("x", "y")])
+Ju_Juni<-raster::extract(Juni_rast, Ju_subset7_sp[,c("x", "y")])
+Ju_Inul<-raster::extract(Inul_rast, Ju_subset7_sp[,c("x", "y")])
+Ju_Kerry <-raster::extract(Kerry_rast, Ju_subset7_sp[,c("x", "y")])
+Ju_Mindy <-raster::extract(Mindy_rast, Ju_subset7_sp[,c("x", "y")])
+Chili_LC<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(Henk_06_LC, Ju_subset7_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(ZeroRast, Ju_subset7_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_06_LC, Ju_subset7_sp[,c("x", "y")])
+Ju_7<-cbind(Ju_subset7_sp, Ju_Chili,  Ju_Henk, Ju_Niko,  Ju_Otto,  Ju_Teju, Ju_Tomi, Ju_Wodan, Ju_Juni, Ju_Inul, Ju_Kerry, Ju_Mindy, Chili_LC, Henk_LC,Niko_LC, Otto_LC , Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(Ju_7)
+names(Ju_7)[8] <- "Chili"
+
+names(Ju_7)[9] <- "Henk"
+names(Ju_7)[10] <- "Niko"
+
+names(Ju_7)[11] <- "Otto"
+
+names(Ju_7)[12] <- "Teju"
+names(Ju_7)[13] <- "Tomi"
+names(Ju_7)[14] <- "Wodan"
+names(Ju_7)[15] <- "Juni"
+names(Ju_7)[16] <- "Inul"
+names(Ju_7)[17] <- "Kerry"
+names(Ju_7)[18] <- "Mindy"
+names(Ju_7)[19]<-"Chili_LC"
+
+names(Ju_7)[20]<-"Henk_LC"
+names(Ju_7)[21]<-"Niko_LC"
+
+names(Ju_7)[22]<-"Otto_LC"
+
+names(Ju_7)[23]<-"Teju_LC"
+names(Ju_7)[24]<-"Tomi_LC"
+names(Ju_7)[25]<-"Wodan_LC"
+Ju_7<-as.data.frame(Ju_7@data)
+str(Ju_7)
+
+# August
+xy <- August[,c("x","y")]
+Au_subset8_sp <- SpatialPointsDataFrame(coords = xy, data = August, proj4string = CRS)
+Au_Chili <- raster::extract(Chili, Au_subset8_sp[,c("x", "y")])
+
+Au_Henk<-raster::extract(Henk, Au_subset8_sp[,c("x", "y")])
+Au_Niko<-raster::extract(Niko, Au_subset8_sp[,c("x", "y")])
+
+Au_Otto<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+
+Au_Teju<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+Au_Tomi<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+Au_Wodan<-raster::extract(Wodan, Au_subset8_sp[,c("x", "y")])
+Au_Juni<-raster::extract(Juni_rast, Au_subset8_sp[,c("x", "y")])
+Au_Inul<-raster::extract(Inul_rast, Au_subset8_sp[,c("x", "y")])
+Au_Kerry <-raster::extract(Kerry_rast, Au_subset8_sp[,c("x", "y")])
+Au_Mindy <-raster::extract(Mindy_rast, Au_subset8_sp[,c("x", "y")])
+Chili_LC<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(Henk_07_LC, Au_subset8_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(ZeroRast, Au_subset8_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_07_LC, Au_subset8_sp[,c("x", "y")])
+Au_8<-cbind(Au_subset8_sp, Au_Chili,  Au_Henk, Au_Niko,  Au_Otto, Au_Teju, Au_Tomi, Au_Wodan, Au_Juni, Au_Inul, Au_Kerry, Au_Mindy, Chili_LC, Henk_LC,Niko_LC,Otto_LC ,  Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(Au_8)
+names(Au_8)[8] <- "Chili"
+
+names(Au_8)[9] <- "Henk"
+names(Au_8)[10] <- "Niko"
+
+names(Au_8)[11] <- "Otto"
+
+names(Au_8)[12] <- "Teju"
+names(Au_8)[13] <- "Tomi"
+names(Au_8)[14] <- "Wodan"
+names(Au_8)[15] <- "Juni"
+names(Au_8)[16] <- "Inul"
+names(Au_8)[17] <- "Kerry"
+names(Au_8)[18] <- "Mindy"
+names(Au_8)[19]<-"Chili_LC"
+
+names(Au_8)[20]<-"Henk_LC"
+names(Au_8)[21]<-"Niko_LC"
+
+names(Au_8)[22]<-"Otto_LC"
+
+names(Au_8)[23]<-"Teju_LC"
+names(Au_8)[24]<-"Tomi_LC"
+names(Au_8)[25]<-"Wodan_LC"
+Au_8<-as.data.frame(Au_8@data)
+str(Au_8)
+
+# September
+xy <- September[,c("x","y")]
+Sep_subset9_sp <- SpatialPointsDataFrame(coords = xy, data = September, proj4string = CRS)
+Sep_Chili <- raster::extract(Chili, Sep_subset9_sp[,c("x", "y")])
+
+Sep_Henk<-raster::extract(Henk, Sep_subset9_sp[,c("x", "y")])
+Sep_Niko<-raster::extract(Niko, Sep_subset9_sp[,c("x", "y")])
+
+Sep_Otto<-raster::extract(Otto, Sep_subset9_sp[,c("x", "y")])
+
+Sep_Teju<-raster::extract(Teju, Sep_subset9_sp[,c("x", "y")])
+Sep_Tomi<-raster::extract(ZeroRast, Sep_subset9_sp[,c("x", "y")])
+Sep_Wodan<-raster::extract(Wodan, Sep_subset9_sp[,c("x", "y")])
+Sep_Juni<-raster::extract(Juni_rast, Sep_subset9_sp[,c("x", "y")])
+Sep_Inul<-raster::extract(Inul_rast, Sep_subset9_sp[,c("x", "y")])
+Sep_Kerry <-raster::extract(Kerry_rast, Sep_subset9_sp[,c("x", "y")])
+Sep_Mindy <-raster::extract(Mindy_rast, Sep_subset9_sp[,c("x", "y")])
+Chili_LC<-raster::extract(Chili_08_LC, Sep_subset9_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(Henk_08_LC, Sep_subset9_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(Niko_08_LC, Sep_subset9_sp[,c("x", "y")])
+Otto_LC<-raster::extract(Otto_08_LC, Sep_subset9_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(Teju_08_LC, Sep_subset9_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(ZeroRast, Sep_subset9_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(ZeroRast, Sep_subset9_sp[,c("x", "y")])
+Sep_9<-cbind(Sep_subset9_sp, Sep_Chili, Sep_Henk, Sep_Niko,Sep_Otto, Sep_Teju, Sep_Tomi, Sep_Wodan, Sep_Juni, Sep_Inul, Sep_Kerry, Sep_Mindy, Chili_LC,Henk_LC,Niko_LC,Otto_LC , Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(Sep_9)
+names(Sep_9)[8] <- "Chili"
+
+names(Sep_9)[9] <- "Henk"
+names(Sep_9)[10] <- "Niko"
+
+names(Sep_9)[11] <- "Otto"
+
+names(Sep_9)[12] <- "Teju"
+names(Sep_9)[13] <- "Tomi"
+names(Sep_9)[14] <- "Wodan"
+names(Sep_9)[15] <- "Juni"
+names(Sep_9)[16] <- "Inul"
+names(Sep_9)[17] <- "Kerry"
+names(Sep_9)[18] <- "Mindy"
+names(Sep_9)[19]<-"Chili_LC"
+
+names(Sep_9)[20]<-"Henk_LC"
+names(Sep_9)[21]<-"Niko_LC"
+
+names(Sep_9)[22]<-"Otto_LC"
+
+names(Sep_9)[23]<-"Teju_LC"
+names(Sep_9)[24]<-"Tomi_LC"
+names(Sep_9)[25]<-"Wodan_LC"
+Sep_9<-as.data.frame(Sep_9@data)
+str(Sep_9)
+
+# October
+xy <- October[,c("x","y")]
+Oct_subset10_sp <- SpatialPointsDataFrame(coords = xy, data = October, proj4string = CRS)
+Oct_Chili <- raster::extract(Chili, Oct_subset10_sp[,c("x", "y")])
+
+Oct_Henk<-raster::extract(Henk, Oct_subset10_sp[,c("x", "y")])
+Oct_Niko<-raster::extract(Niko, Oct_subset10_sp[,c("x", "y")])
+
+Oct_Otto<-raster::extract(Otto, Oct_subset10_sp[,c("x", "y")])
+
+Oct_Teju<-raster::extract(Teju, Oct_subset10_sp[,c("x", "y")])
+Oct_Tomi<-raster::extract(ZeroRast, Oct_subset10_sp[,c("x", "y")])
+Oct_Wodan<-raster::extract(Wodan, Oct_subset10_sp[,c("x", "y")])
+Oct_Juni<-raster::extract(Juni_rast, Oct_subset10_sp[,c("x", "y")])
+Oct_Inul<-raster::extract(Inul_rast, Oct_subset10_sp[,c("x", "y")])
+Oct_Kerry <-raster::extract(Kerry_rast, Oct_subset10_sp[,c("x", "y")])
+Oct_Mindy <-raster::extract(Mindy_rast, Oct_subset10_sp[,c("x", "y")])
+Chili_LC<-raster::extract(Chili_09_LC, Oct_subset10_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(Henk_09_LC, Oct_subset10_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(Niko_09_LC, Oct_subset10_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, Oct_subset10_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(ZeroRast, Oct_subset10_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(Tomi_09_LC, Oct_subset10_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_09_LC, Oct_subset10_sp[,c("x", "y")])
+Oct_10<-cbind(Oct_subset10_sp, Oct_Chili, Oct_Henk, Oct_Niko, Oct_Otto,  Oct_Teju, Oct_Tomi, Oct_Wodan, Oct_Juni, Oct_Inul, Oct_Kerry, Oct_Mindy, Chili_LC, Henk_LC,Niko_LC, Otto_LC , Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(Oct_10)
+names(Oct_10)[8] <- "Chili"
+
+names(Oct_10)[9] <- "Henk"
+names(Oct_10)[10] <- "Niko"
+
+names(Oct_10)[11] <- "Otto"
+
+names(Oct_10)[12] <- "Teju"
+names(Oct_10)[13] <- "Tomi"
+names(Oct_10)[14] <- "Wodan"
+names(Oct_10)[15] <- "Juni"
+names(Oct_10)[16] <- "Inul"
+names(Oct_10)[17] <- "Kerry"
+names(Oct_10)[18] <- "Mindy"
+names(Oct_10)[19]<-"Chili_LC"
+
+names(Oct_10)[20]<-"Henk_LC"
+names(Oct_10)[21]<-"Niko_LC"
+
+names(Oct_10)[22]<-"Otto_LC"
+
+names(Oct_10)[23]<-"Teju_LC"
+names(Oct_10)[24]<-"Tomi_LC"
+names(Oct_10)[25]<-"Wodan_LC"
+Oct_10<-as.data.frame(Oct_10@data)
+str(Oct_10)
+# November
+xy <- November[,c("x","y")]
+Nov_subset11_sp <- SpatialPointsDataFrame(coords = xy, data = November, proj4string = CRS)
+Nov_Chili <- raster::extract(Chili, Nov_subset11_sp[,c("x", "y")])
+
+Nov_Henk<-raster::extract(Henk, Nov_subset11_sp[,c("x", "y")])
+Nov_Niko<-raster::extract(ZeroRast, Nov_subset11_sp[,c("x", "y")])
+
+Nov_Otto<-raster::extract(ZeroRast, Nov_subset11_sp[,c("x", "y")])
+
+Nov_Teju<-raster::extract(Teju, Nov_subset11_sp[,c("x", "y")])
+Nov_Tomi<-raster::extract(Tomi, Nov_subset11_sp[,c("x", "y")])
+Nov_Wodan<-raster::extract(Wodan, Nov_subset11_sp[,c("x", "y")])
+Nov_Juni<-raster::extract(Juni_rast, Nov_subset11_sp[,c("x", "y")])
+Nov_Inul<-raster::extract(Inul_rast, Nov_subset11_sp[,c("x", "y")])
+Nov_Kerry <-raster::extract(Kerry_rast, Nov_subset11_sp[,c("x", "y")])
+Nov_Mindy <-raster::extract(Mindy_rast, Nov_subset11_sp[,c("x", "y")])
+Chili_LC<-raster::extract(Chili_10_LC, Nov_subset11_sp[,c("x", "y")])
+
+Henk_LC<-raster::extract(Henk_10_LC, Nov_subset11_sp[,c("x", "y")])
+
+Niko_LC<-raster::extract(ZeroRast, Nov_subset11_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, Nov_subset11_sp[,c("x", "y")])
+
+Teju_LC<-raster::extract(Teju_10_LC, Nov_subset11_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(Tomi_10_LC, Nov_subset11_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_10_LC, Nov_subset11_sp[,c("x", "y")])
+Nov_11<-cbind(Nov_subset11_sp, Nov_Chili, Nov_Henk, Nov_Niko,  Nov_Otto, Nov_Teju, Nov_Tomi, Nov_Wodan, Nov_Juni, Nov_Inul, Nov_Kerry, Nov_Mindy, Chili_LC,Henk_LC,Niko_LC,Otto_LC , Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(Nov_11)
+names(Nov_11)[8] <- "Chili"
+
+names(Nov_11)[9] <- "Henk"
+names(Nov_11)[10] <- "Niko"
+
+names(Nov_11)[11] <- "Otto"
+
+names(Nov_11)[12] <- "Teju"
+names(Nov_11)[13] <- "Tomi"
+names(Nov_11)[14] <- "Wodan"
+names(Nov_11)[15] <- "Juni"
+names(Nov_11)[16] <- "Inul"
+names(Nov_11)[17] <- "Kerry"
+names(Nov_11)[18] <- "Mindy"
+names(Nov_11)[19]<-"Chili_LC"
+
+names(Nov_11)[20]<-"Henk_LC"
+names(Nov_11)[21]<-"Niko_LC"
+
+names(Nov_11)[22]<-"Otto_LC"
+
+names(Nov_11)[23]<-"Teju_LC"
+names(Nov_11)[24]<-"Tomi_LC"
+names(Nov_11)[25]<-"Wodan_LC"
+Nov_11<-as.data.frame(Nov_11@data )
+
+# December
+xy <- December[,c("x","y")]
+Dec_subset12_sp <- SpatialPointsDataFrame(coords = xy, data = December, proj4string = CRS)
+Dec__Chili <- raster::extract(Chili, Dec_subset12_sp[,c("x", "y")])
+Dec__Henk<-raster::extract(Henk, Dec_subset12_sp[,c("x", "y")])
+Dec__Niko<-raster::extract(Niko, Dec_subset12_sp[,c("x", "y")])
+Dec__Otto<-raster::extract(ZeroRast, Dec_subset12_sp[,c("x", "y")])
+Dec__Teju<-raster::extract(Teju, Dec_subset12_sp[,c("x", "y")])
+Dec__Tomi<-raster::extract(Tomi, Dec_subset12_sp[,c("x", "y")])
+Dec__Wodan<-raster::extract(Wodan, Dec_subset12_sp[,c("x", "y")])
+Dec__Juni<-raster::extract(Juni_rast, Dec_subset12_sp[,c("x", "y")])
+Dec__Inul<-raster::extract(Inul_rast, Dec_subset12_sp[,c("x", "y")])
+Dec__Kerry <-raster::extract(Kerry_rast, Dec_subset12_sp[,c("x", "y")])
+Dec__Mindy <-raster::extract(Mindy_rast, Dec_subset12_sp[,c("x", "y")])
+Chili_LC<-raster::extract(Chili_11_LC, Dec_subset12_sp[,c("x", "y")])
+Henk_LC<-raster::extract(ZeroRast, Dec_subset12_sp[,c("x", "y")])
+Niko_LC<-raster::extract(Niko_11_LC, Dec_subset12_sp[,c("x", "y")])
+Otto_LC<-raster::extract(ZeroRast, Dec_subset12_sp[,c("x", "y")])
+Teju_LC<-raster::extract(Teju_11_LC, Dec_subset12_sp[,c("x", "y")])
+Tomi_LC<-raster::extract(Tomi_11_LC, Dec_subset12_sp[,c("x", "y")])
+Wodan_LC<-raster::extract(Wodan_11_LC, Dec_subset12_sp[,c("x", "y")])
+Dec_12<-cbind(Dec_subset12_sp, Dec__Chili,Dec__Henk, Dec__Niko, Dec__Otto,Dec__Teju, Dec__Tomi, Dec__Wodan, Dec__Juni, Dec__Inul, Dec__Kerry, Dec__Mindy, Chili_LC,Henk_LC,Niko_LC,Otto_LC ,  Teju_LC, Tomi_LC, Wodan_LC)
+as.data.frame(Dec_12)
+names(Dec_12)[8] <- "Chili"
+
+names(Dec_12)[9] <- "Henk"
+names(Dec_12)[10] <- "Niko"
+
+names(Dec_12)[11] <- "Otto"
+
+names(Dec_12)[12] <- "Teju"
+names(Dec_12)[13] <- "Tomi"
+names(Dec_12)[14] <- "Wodan"
+names(Dec_12)[15] <- "Juni"
+names(Dec_12)[16] <- "Inul"
+names(Dec_12)[17] <- "Kerry"
+names(Dec_12)[18] <- "Mindy"
+names(Dec_12)[19]<-"Chili_LC"
+
+names(Dec_12)[20]<-"Henk_LC"
+names(Dec_12)[21]<-"Niko_LC"
+
+names(Dec_12)[22]<-"Otto_LC"
+
+names(Dec_12)[23]<-"Teju_LC"
+names(Dec_12)[24]<-"Tomi_LC"
+names(Dec_12)[25]<-"Wodan_LC"
+Dec_12<-as.data.frame(Dec_12@data)
+
+str(Dec_12)
+str(Nov_11)
+# rbind and then separate by individual ID
+Monthly_LC_df<-rbind(M_3,A_4, MA_5, J_6, Ju_7, Au_8, Sep_9,Oct_10, Nov_11, Dec_12)
+
+X<-split(Monthly_LC_df, Monthly_LC_df$ID)
+
+Chili_df<-X$Chili
+Henk_df<-X$Henk
+Niko_df<-X$Niko
+Teju_df<-X$Teju
+Tomi_df<-X$Tomi
+Wodan_df<-X$Wodan
+
+#any NA points within ODs would be 0
+Chili_df[is.na(Chili_df)] <- 0
+Henk_df[is.na(Henk_df)] <- 0
+Niko_df[is.na(Niko_df)] <- 0
+Teju_df[is.na(Teju_df)] <- 0
+Tomi_df[is.na(Tomi_df)] <- 0
+Wodan_df[is.na(Wodan_df)] <- 0
+
+# Add association data for each individual which has come manually from the Tuanan Database
+library(data.table)
+Chili_Associations <- read_csv("Chili_Associations.csv")
+
+# format time so that timestamps can be matched up for a rolling join
+Chili_Associations$Date<-as.POSIXct(x = as.character(Chili_Associations$Date), format = "%m/%d/%Y")
+Chili_Associations$NewDate<-format(Chili_Associations$Date, "%Y-%m-%d")
+Chili_Associations$Timestamp<-with(Chili_Associations,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Chili_Associations$Timestamp1<-as.POSIXct(x = as.character(Chili_Associations$Timestamp))
+
+# already ran this script before, but if starting from raw data would need to include this for the long call data
+Chili_df$Timestamp<-as.POSIXct(x = as.character(Chili_df$timestamp))
+
+# set DT for data.table to roll on
+Chili_Associations$DT<-as.numeric(Chili_Associations$Timestamp1)
+Chili_df$DT<-as.numeric(Chili_df$Timestamp)
+
+# set data.table key
+setDT(Chili_Associations)[,join_time:=DT]
+setDT(Chili_df)[, join_time:=DT]
+setkey(Chili_df, join_time)
+setkey(Chili_Associations, join_time)
+
+# rolling window of an hour around observations
+one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+Chili_df_Act2<-Chili_Associations[Chili_df, nomatch=0, roll = -one_hour]
+View(Chili_df_Act2)
+
+# remove NA
+Chili_df<-Chili_df_Act2[!is.na(Chili_df_Act2$PT),]
+str(Chili_df)
+#Checked associations with "View" and only one is with a male - remove this
+
+Chili_df<-Chili_df[!grepl("Wodan", Chili_df$`Party member 2`),]
+
+# check for duplicates because row length doesnt match original d
+
+duplicated(Chili_df$timestamp)
+
+Chili_df<-Chili_df[!duplicated(Chili_df$timestamp),]
+
+# select only necessary columns
+Chili_df<-Chili_df[,c("x", "y", "timestamp", "ID","PT", "Chili","Henk", "Niko","Otto","Teju","Tomi","Wodan", "Juni","Inul","Kerry", "Mindy","Chili_LC", "Henk_LC","Niko_LC", "Otto_LC", "Teju_LC", "Tomi_LC", "Wodan_LC", "Party member 2", "Class Focal", "Name Focal", "Party Size")]
+
+Chili_df$Association<-Chili_df$`Party Size`
+
+# a one or zero for associations
+Chili_df$Association[Chili_df$Association == 1 ] <- 0
+Chili_df$Association[Chili_df$Association >= 2 ] <- 1
+
+
+# do the same for Henk
+Henk_Associations <- read_csv("Henk_Associations.csv")
+
+# format time so that timestamps can be matched up for a rolling join
+Henk_Associations$Date<-as.POSIXct(x = as.character(Henk_Associations$Date), format = "%m/%d/%Y")
+Henk_Associations$NewDate<-format(Henk_Associations$Date, "%Y-%m-%d")
+Henk_Associations$Timestamp<-with(Henk_Associations,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Henk_Associations$Timestamp1<-as.POSIXct(x = as.character(Henk_Associations$Timestamp))
+
+# already ran this script before, but if starting from raw data would need to include this for the long call data
+Henk_df$Timestamp<-as.POSIXct(x = as.character(Henk_df$timestamp))
+
+# set DT for data.table to roll on
+Henk_Associations$DT<-as.numeric(Henk_Associations$Timestamp1)
+Henk_df$DT<-as.numeric(Henk_df$Timestamp)
+
+# set data.table key
+setDT(Henk_Associations)[,join_time:=DT]
+setDT(Henk_df)[, join_time:=DT]
+setkey(Henk_df, join_time)
+setkey(Henk_Associations, join_time)
+
+# rolling window of an hour around observations
+one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+Henk_df_Act2<-Henk_Associations[Henk_df, roll = one_hour]
+
+Henk_df<-Henk_df_Act2[,c("x", "y", "timestamp", "ID","PT", "Chili","Henk", "Niko","Otto","Teju","Tomi","Wodan", "Juni","Inul","Kerry", "Mindy","Chili_LC", "Henk_LC","Niko_LC", "Otto_LC", "Teju_LC", "Tomi_LC", "Wodan_LC", "Party member 2", "Class Focal", "Name Focal", "Party Size")]
+Henk_df$ASC_F<-Henk_df$`Class Focal`
+Henk_df$Asso_Num<-Henk_df$`Party Size`
+Henk_df$Asso_ID<-Henk_df$`Party member 2`
+Henk_df[is.na(Henk_df)] <- 0
+
+View(Henk_df)
+# Henk has no associations during data collection
+
+# Niko
+Niko_Associations <- read_csv("Niko_Associations.csv")
+
+# format time so that timestamps can be matched up for a rolling join
+Niko_Associations$Date<-as.POSIXct(x = as.character(Niko_Associations$Date), format = "%m/%d/%Y")
+Niko_Associations$NewDate<-format(Niko_Associations$Date, "%Y-%m-%d")
+Niko_Associations$Timestamp<-with(Niko_Associations,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Niko_Associations$Timestamp1<-as.POSIXct(x = as.character(Niko_Associations$Timestamp))
+
+# already ran this script before, but if starting from raw data would need to include this for the long call data
+Niko_df$Timestamp<-as.POSIXct(x = as.character(Niko_df$timestamp))
+
+# set DT for data.table to roll on
+Niko_Associations$DT<-as.numeric(Niko_Associations$Timestamp1)
+Niko_df$DT<-as.numeric(Niko_df$Timestamp)
+
+# set data.table key
+setDT(Niko_Associations)[,join_time:=DT]
+setDT(Niko_df)[, join_time:=DT]
+setkey(Niko_df, join_time)
+setkey(Niko_Associations, join_time)
+
+# rolling window of an hour around observations
+one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+Niko_df_Act2<-Niko_Associations[Niko_df, roll = one_hour]
+
+Niko_df<-Niko_df_Act2[,c("x", "y", "timestamp", "ID","PT", "Chili","Henk", "Niko","Otto","Teju","Tomi","Wodan", "Juni","Inul","Kerry", "Mindy","Chili_LC", "Henk_LC","Niko_LC", "Otto_LC", "Teju_LC", "Tomi_LC", "Wodan_LC", "Party member 2", "Class Focal", "Name Focal", "Party Size")]
+Niko_df$ASC_F<-Niko_df$`Class Focal`
+Niko_df$Association<-Niko_df$`Party Size`
+Niko_df$Asso_ID<-Niko_df$`Party member 2`
+Niko_df[is.na(Niko_df)] <- 0
+
+View(Niko_df)
+# All associations were female - add column of 1 and 0 for whether row is during an association
+# a one or zero for associations
+Niko_df$Association[Niko_df$Association == 1 ] <- 0
+Niko_df$Association[Niko_df$Association >= 2 ] <- 1
+
+# Teju
+
+Teju_Associations <- read_csv("Teju_Associations.csv")
+
+# format time so that timestamps can be matched up for a rolling join
+Teju_Associations$Date<-as.POSIXct(x = as.character(Teju_Associations$Date), format = "%m/%d/%Y")
+Teju_Associations$NewDate<-format(Teju_Associations$Date, "%Y-%m-%d")
+Teju_Associations$Timestamp<-with(Teju_Associations,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Teju_Associations$Timestamp1<-as.POSIXct(x = as.character(Teju_Associations$Timestamp))
+
+# already ran this script before, but if starting from raw data would need to include this for the long call data
+Teju_df$Timestamp<-as.POSIXct(x = as.character(Teju_df$timestamp))
+
+# set DT for data.table to roll on
+Teju_Associations$DT<-as.numeric(Teju_Associations$Timestamp1)
+Teju_df$DT<-as.numeric(Teju_df$Timestamp)
+
+# set data.table key
+setDT(Teju_Associations)[,join_time:=DT]
+setDT(Teju_df)[, join_time:=DT]
+setkey(Teju_df, join_time)
+setkey(Teju_Associations, join_time)
+
+# rolling window of an hour around observations
+one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+Teju_df_Act2<-Teju_Associations[Teju_df, roll = one_hour]
+
+# Joined dataframes will contain all the extra rows from the association table
+
+
+
+# View(Teju_df) - no adult male associations (but juv/infant with female)
+Teju_df<-Teju_df_Act2[,c("x", "y", "timestamp", "ID","PT", "Chili","Henk", "Niko","Otto","Teju","Tomi","Wodan", "Juni","Inul","Kerry", "Mindy","Chili_LC", "Henk_LC","Niko_LC", "Otto_LC", "Teju_LC", "Tomi_LC", "Wodan_LC", "Party member 2", "Name Focal", "Party Size")]
+Teju_df$Association<-Teju_df$`Party Size`
+Teju_df$Asso_ID<-Teju_df$`Party member 2`
+Teju_df[is.na(Teju_df)] <- 0
+
+View(Teju_df)
+# All associations were female - add column of 1 and 0 for whether row is during an association
+# a one or zero for associations
+Teju_df$Association[Teju_df$Association == 1 ] <- 0
+Teju_df$Association[Teju_df$Association >= 2 ] <- 1
+
+# Tomi
+
+Tomi_Associations <- read_csv("Tomi_Associations.csv")
+
+# format time so that timestamps can be matched up for a rolling join
+Tomi_Associations$Date<-as.POSIXct(x = as.character(Tomi_Associations$Date), format = "%m/%d/%Y")
+Tomi_Associations$NewDate<-format(Tomi_Associations$Date, "%Y-%m-%d")
+Tomi_Associations$Timestamp<-with(Tomi_Associations,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Tomi_Associations$Timestamp1<-as.POSIXct(x = as.character(Tomi_Associations$Timestamp))
+
+# already ran this script before, but if starting from raw data would need to include this for the long call data
+Tomi_df$Timestamp<-as.POSIXct(x = as.character(Tomi_df$timestamp))
+
+# set DT for data.table to roll on
+Tomi_Associations$DT<-as.numeric(Tomi_Associations$Timestamp1)
+Tomi_df$DT<-as.numeric(Tomi_df$Timestamp)
+
+# set data.table key
+setDT(Tomi_Associations)[,join_time:=DT]
+setDT(Tomi_df)[, join_time:=DT]
+setkey(Tomi_df, join_time)
+setkey(Tomi_Associations, join_time)
+
+# rolling window of an hour around observations
+one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+Tomi_df_Act2<-Tomi_Associations[Tomi_df, roll = one_hour]
+
+#no adult male associations (but juv/infant with female)
+Tomi_df<-Tomi_df_Act2[,c("x", "y", "timestamp", "ID","PT", "Chili","Henk", "Niko","Otto","Teju","Tomi","Wodan", "Juni","Inul","Kerry", "Mindy","Chili_LC", "Henk_LC","Niko_LC", "Otto_LC", "Teju_LC", "Tomi_LC", "Wodan_LC", "Party member 2", "Name Focal", "Party Size")]
+Tomi_df$Association<-Tomi_df$`Party Size`
+Tomi_df$Asso_ID<-Tomi_df$`Party member 2`
+Tomi_df[is.na(Tomi_df)] <- 0
+
+# All associations were female - add column of 1 and 0 for whether row is during an association
+# a one or zero for associations
+Tomi_df$Association[Tomi_df$Association == 1 ] <- 0
+Tomi_df$Association[Tomi_df$Association >= 2 ] <- 1
+
+
+# Wodan
+
+Wodan_Associations <- read_csv("Wodan_Associations.csv")
+
+# format time so that timestamps can be matched up for a rolling join
+Wodan_Associations$Date<-as.POSIXct(x = as.character(Wodan_Associations$Date), format = "%m/%d/%Y")
+Wodan_Associations$NewDate<-format(Wodan_Associations$Date, "%Y-%m-%d")
+Wodan_Associations$Timestamp<-with(Wodan_Associations,paste(NewDate,Time,sep=" "),"%Y-%m-%d %H:%M:%S")
+Wodan_Associations$Timestamp1<-as.POSIXct(x = as.character(Wodan_Associations$Timestamp))
+
+# already ran this script before, but if starting from raw data would need to include this for the long call data
+Wodan_df$Timestamp<-as.POSIXct(x = as.character(Wodan_df$timestamp))
+
+# set DT for data.table to roll on
+Wodan_Associations$DT<-as.numeric(Wodan_Associations$Timestamp1)
+Wodan_df$DT<-as.numeric(Wodan_df$Timestamp)
+
+# set data.table key
+setDT(Wodan_Associations)[,join_time:=DT]
+setDT(Wodan_df)[, join_time:=DT]
+setkey(Wodan_df, join_time)
+setkey(Wodan_Associations, join_time)
+
+# rolling window of an hour around observations
+one_hour <- 60*60*1 # 60 seconds by 60 minutes by one - for data.table calculation - weird but that's what data.table requires
+Wodan_df_Act2<-Wodan_Associations[Wodan_df, roll = one_hour]
+
+#no adult male associations (but juv/infant with female)
+Wodan_df<-Wodan_df_Act2[,c("x", "y", "timestamp", "ID","PT", "Chili","Henk", "Niko","Otto","Teju","Tomi","Wodan", "Juni","Inul","Kerry", "Mindy","Chili_LC", "Henk_LC","Niko_LC", "Otto_LC", "Teju_LC", "Tomi_LC", "Wodan_LC", "Party member 2", "Name Focal", "Party Size")]
+Wodan_df$Association<-Wodan_df$`Party Size`
+Wodan_df$Asso_ID<-Wodan_df$`Party member 2`
+Wodan_df[is.na(Wodan_df)] <- 0
+
+# All associations were female - add column of 1 and 0 for whether row is during an association
+# a one or zero for associations
+Wodan_df$Association[Wodan_df$Association == 1 ] <- 0
+Wodan_df$Association[Wodan_df$Association >= 2 ] <- 1
+
+# found some males that were associations in the dataframe - only a couple so remove these - not enough for analysis
+View(Wodan_df)
+Wodan_df<-Wodan_df[!grepl("Mister X", Wodan_df$`Party member 2`),]
+Wodan_df<-Wodan_df[!grepl("Tomi", Wodan_df$`Party member 2`),]
+Wodan_df<-Wodan_df[!grepl("Chili", Wodan_df$`Party member 2`),]
+
+# save CSVs
+save(Chili_df, file="Chili_df.csv")
+save(Henk_df, file="Henk_df.csv")
+save(Niko_df, file="Niko_df.csv")
+save(Teju_df, file="Teju_df.csv")
+save(Tomi_df, file="Tomi_df.csv")
+save(Wodan_df, file="Wodan_df.csv")
+
+load(file="Chili_df.csv")
+load(file="Henk_df.csv")
+load(file="Niko_df.csv")
+load(file="Teju_df.csv")
+load(file="Tomi_df.csv")
+load(file="Wodan_df.csv")
+
+
+str(Henk_df)
+# for mapping 
+# select out variables needed by movebank
+Chili_mov<-Chili_df[,c("x", "y", "timestamp", "ID","PT")]
+Henk_mov<-Henk_df[,c("x", "y", "timestamp", "ID","PT")]
+Niko_mov<-Niko_df[,c("x", "y", "timestamp", "ID","PT")]
+Teju_mov<-Teju_df[,c("x", "y", "timestamp", "ID","PT")]
+Tomi_mov<-Tomi_df[,c("x", "y", "timestamp", "ID","PT")]
+Wodan_mov<-Wodan_df[,c("x", "y", "timestamp", "ID","PT")]
+
+# bind into a single dataframe
+LongCalls_and_GPS<-rbind(Chili_mov, Henk_mov, Niko_mov, Teju_mov, Tomi_mov, Wodan_mov)
+str(LongCalls_and_GPS)
+
+LongCalls_and_GPS$ID_type<-paste(LongCalls_and_GPS$ID, LongCalls_and_GPS$PT)
+
+# rename for plot
+LongCalls_and_GPS$ID_type<- gsub("Chili 1", "Chili_LongCall", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Chili 0", "Chili_GPS", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Henk 1", "Henk_LongCall", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Henk 0", "Henk_GPS", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Niko 1", "Niko_LongCall", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Niko 0", "Niko_GPS", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Teju 1", "Teju_LongCall", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Teju 0", "Teju_GPS", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Tomi 1", "Tomi_LongCall", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Tomi 0", "Tomi_GPS", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Wodan 1", "Wodan_LongCall", LongCalls_and_GPS$ID_type)
+LongCalls_and_GPS$ID_type<- gsub("Wodan 0", "Wodan_GPS", LongCalls_and_GPS$ID_type)
+
+write.csv(LongCalls_and_GPS, file="LongCalls_and_GPS_Plots.csv")
+
+
+# split into two dataframes based on if points are long calls or just GPS
+LC<-split(LongCalls_and_GPS, LongCalls_and_GPS$PT)
+GPS<-LC$`0`
+LC<-LC$`1`
+
+GPS<-GPS[,c("x", "y", "timestamp", "ID")] # select out movebank attributes
+LC<-LC[,c("x", "y", "timestamp", "ID")]
+str(LC)
+
+write.csv(LC, "LC_for_plotting.csv")
+write.csv(GPS, "GPS_LC_for_plotting.csv")
+
+
+
+
